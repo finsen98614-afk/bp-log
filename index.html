@@ -54,6 +54,7 @@
 
   .banner{font-family:var(--mono);font-size:11px;line-height:1.5;padding:10px 11px;border-radius:8px;margin-bottom:14px;display:none;}
   .banner.danger{background:rgba(193,58,58,.12);border:1px solid var(--crisis);color:#F0A7A7;}
+  .banner.warn{background:rgba(224,178,76,.12);border:1px solid var(--elevated);color:#E8CE8C;}
 
   .chartbox{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 10px 8px;margin-bottom:14px;}
   .chartbox h2{font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 0 8px 2px;font-weight:600;}
@@ -81,6 +82,7 @@
   </header>
 
   <div class="banner" id="banner"></div>
+  <div class="banner" id="reminder"></div>
 
   <div class="stats">
     <div class="stat"><div class="lbl">Avg Sys</div><div class="val" id="avgSys">—</div></div>
@@ -106,6 +108,7 @@
   <div class="tools">
     <button class="ghost" id="csvBtn">CSV</button>
     <button class="ghost" id="backupBtn">Backup</button>
+    <button class="ghost" id="shareBtn">Email</button>
     <button class="ghost" id="restoreBtn">Restore</button>
     <input type="file" id="restoreFile" accept="application/json,.json">
   </div>
@@ -257,7 +260,7 @@
     document.getElementById('avgDia').textContent = avg('dia');
     document.getElementById('latest').textContent = entries.length? entries[0].sys+'/'+entries[0].dia : '—';
 
-    ['csvBtn','backupBtn'].forEach(id=>{ document.getElementById(id).disabled = entries.length===0; });
+    ['csvBtn','backupBtn','shareBtn'].forEach(id=>{ document.getElementById(id).disabled = entries.length===0; });
 
     const log=document.getElementById('log');
     if(!entries.length){
@@ -281,6 +284,7 @@
       });
     }
     renderChart();
+    updateReminder();
   }
 
   // ---------- actions ----------
@@ -346,9 +350,72 @@
     setMsg('CSV downloaded.','ok');
   }
 
+  const META_ID = -1; // reserved key in the same store for app metadata
+  let lastBackup = null;
+
+  function markBackedUp(){
+    lastBackup = todayStr();
+    dbPut({id:META_ID, meta:true, lastBackup:lastBackup}).catch(()=>{});
+    updateReminder();
+  }
+
+  function daysSince(dateStr){
+    if(!dateStr) return null;
+    const then=new Date(dateStr+'T00:00:00');
+    if(isNaN(then)) return null;
+    return Math.floor((Date.now()-then.getTime())/86400000);
+  }
+
+  function updateReminder(){
+    const b=document.getElementById('reminder');
+    if(!b) return;
+    if(!entries.length){ b.style.display='none'; return; }
+    const d=daysSince(lastBackup);
+    if(lastBackup===null){
+      b.style.display='block';
+      b.className='banner warn';
+      b.textContent='Never backed up. Data lives only on this phone — tap Email or Backup.';
+    }else if(d!==null && d>=30){
+      b.style.display='block';
+      b.className='banner warn';
+      b.textContent='Last backup was '+d+' days ago. Tap Email to send yourself a fresh copy.';
+    }else{
+      b.style.display='none';
+    }
+  }
+
+  async function shareBackup(){
+    if(!entries.length) return;
+    const name='bp-backup-'+todayStr()+'.json';
+    const body=JSON.stringify(entries,null,2);
+
+    // Web Share Level 2: hands the file to Gmail/Drive/etc. with the attachment already set.
+    if(navigator.canShare && typeof File==='function'){
+      try{
+        const file=new File([body],name,{type:'application/json'});
+        if(navigator.canShare({files:[file]})){
+          await navigator.share({
+            files:[file],
+            title:'Blood pressure backup',
+            text:'BP backup — '+entries.length+' readings as of '+todayStr()+'.'
+          });
+          markBackedUp();
+          setMsg('Shared '+entries.length+' readings.','ok');
+          return;
+        }
+      }catch(err){
+        if(err && err.name==='AbortError'){ setMsg('Share cancelled.',''); return; }
+        // fall through to download
+      }
+    }
+    download(body,'application/json;charset=utf-8;',name);
+    setMsg('Sharing unavailable here — file downloaded instead, attach it manually.','warn');
+  }
+
   function backup(){
     if(!entries.length) return;
     download(JSON.stringify(entries,null,2),'application/json;charset=utf-8;','bp-backup-'+todayStr()+'.json');
+    markBackedUp();
     setMsg('Backup downloaded.','ok');
   }
 
@@ -393,6 +460,7 @@
     document.getElementById('addBtn').addEventListener('click',onAdd);
     document.getElementById('csvBtn').addEventListener('click',exportCsv);
     document.getElementById('backupBtn').addEventListener('click',backup);
+    document.getElementById('shareBtn').addEventListener('click',shareBackup);
     document.getElementById('restoreBtn').addEventListener('click',()=>document.getElementById('restoreFile').click());
     document.getElementById('restoreFile').addEventListener('change',restore);
     ['fSys','fDia','fPulse','fNote'].forEach(id=>{
@@ -401,7 +469,10 @@
 
     try{
       db=await openDB();
-      entries=sortEntries((await dbAll()).map(normalize));
+      const all=await dbAll();
+      const meta=all.find(r=>r&&r.meta===true);
+      lastBackup=meta&&meta.lastBackup?meta.lastBackup:null;
+      entries=sortEntries(all.filter(r=>r&&r.meta!==true).map(normalize));
     }catch(e){
       showBanner('Local database unavailable ('+(e.message||e)+'). Entries cannot be saved on this device — try a normal (non-private) browser window.');
       document.getElementById('addBtn').disabled=true;
