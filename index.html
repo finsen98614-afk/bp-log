@@ -54,7 +54,6 @@
 
   .banner{font-family:var(--mono);font-size:11px;line-height:1.5;padding:10px 11px;border-radius:8px;margin-bottom:14px;display:none;}
   .banner.danger{background:rgba(193,58,58,.12);border:1px solid var(--crisis);color:#F0A7A7;}
-  .banner.warn{background:rgba(224,178,76,.12);border:1px solid var(--elevated);color:#E8CE8C;}
 
   .chartbox{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 10px 8px;margin-bottom:14px;}
   .chartbox h2{font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 0 8px 2px;font-weight:600;}
@@ -71,6 +70,15 @@
   .del{background:none;color:var(--muted);font-size:19px;line-height:1;padding:4px 7px;}
   .del:active{color:var(--high2);}
   .empty{color:var(--muted);font-family:var(--mono);font-size:11.5px;text-align:center;padding:22px 0;}
+  .legend{display:flex;gap:14px;justify-content:center;margin-top:4px;font-family:var(--mono);font-size:9.5px;color:var(--muted);}
+  .legend span{display:flex;align-items:center;gap:5px;}
+  .legend i{width:9px;height:2.5px;border-radius:2px;display:inline-block;}
+  .ref{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 13px;margin-bottom:14px;}
+  .ref summary{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);cursor:pointer;font-weight:600;}
+  .ref table{width:100%;border-collapse:collapse;margin-top:9px;}
+  .ref td{font-size:11px;color:var(--muted);padding:3px 0;vertical-align:top;line-height:1.45;}
+  .ref td:first-child{width:62px;font-family:var(--mono);font-size:10px;white-space:nowrap;}
+  .ref p{font-size:10.5px;color:var(--muted);line-height:1.5;margin:9px 0 0;font-style:italic;}
   input[type=file]{display:none;}
 </style>
 </head>
@@ -82,7 +90,6 @@
   </header>
 
   <div class="banner" id="banner"></div>
-  <div class="banner" id="reminder"></div>
 
   <div class="stats">
     <div class="stat"><div class="lbl">Avg Sys</div><div class="val" id="avgSys">—</div></div>
@@ -99,7 +106,7 @@
     </div>
     <div class="fld">
       <label>Comment (optional)</label>
-      <input type="text" id="fNote" placeholder="e.g. 啱啱飲完咖啡">
+      <input type="text" id="fNote" maxlength="200" placeholder="e.g. 啱啱飲完咖啡">
     </div>
     <button class="send" id="addBtn">+ Add Reading</button>
     <div class="msg" id="msg"></div>
@@ -108,7 +115,6 @@
   <div class="tools">
     <button class="ghost" id="csvBtn">CSV</button>
     <button class="ghost" id="backupBtn">Backup</button>
-    <button class="ghost" id="shareBtn">Email</button>
     <button class="ghost" id="restoreBtn">Restore</button>
     <input type="file" id="restoreFile" accept="application/json,.json">
   </div>
@@ -116,7 +122,23 @@
   <div class="chartbox" id="chartbox" style="display:none;">
     <h2>Last 30 readings</h2>
     <div id="chart"></div>
+    <div class="legend">
+      <span><i style="background:var(--high2)"></i>Systolic</span>
+      <span><i style="background:var(--normal)"></i>Diastolic</span>
+    </div>
   </div>
+
+  <details class="ref">
+    <summary>Categories (Hypertension Canada 2025)</summary>
+    <table>
+      <tr><td><b style="color:var(--normal)">Normal</b></td><td>under 120/80</td></tr>
+      <tr><td><b style="color:var(--elevated)">Watch</b></td><td>120–129 systolic — relevant if you are 50+ or at elevated cardiovascular risk</td></tr>
+      <tr><td><b style="color:var(--high1)">HTN</b></td><td>130/80 and up — the diagnostic threshold for hypertension</td></tr>
+      <tr><td><b style="color:var(--high2)">Treat</b></td><td>140/90 and up — treatment threshold for most adults</td></tr>
+      <tr><td><b style="color:var(--crisis)">Crisis</b></td><td>180/120 and up — seek medical care</td></tr>
+    </table>
+    <p>A single home reading is not a diagnosis. These bands are for tracking; your doctor interprets them.</p>
+  </details>
 
   <div class="log" id="log"></div>
 </div>
@@ -126,10 +148,26 @@
   'use strict';
 
   const DB_NAME='bpLogDB', STORE='readings', DB_VER=1;
-  let db=null, entries=[], idCounter=0;
-  const SESSION_BASE=Date.now();
+  const META_ID=-1;          // legacy metadata key: kept so old records stay out of the log
+  let db=null, entries=[];
 
-  function newId(){ idCounter+=1; return SESSION_BASE*1000+idCounter; }
+  // Monotonic millisecond timestamp. Multiplying a ms epoch by a stride would
+  // exceed Number.MAX_SAFE_INTEGER and silently lose precision, so instead we
+  // take the clock and step forward whenever it hasn't advanced. Seeded from the
+  // largest id already stored, so ids stay unique across sessions too.
+  let lastId=0;
+  function newId(){
+    let t=Date.now();
+    if(t<=lastId) t=lastId+1;
+    lastId=t;
+    return t;
+  }
+  function seedIds(records){
+    records.forEach(r=>{
+      const v=Number(r&&r.id);
+      if(Number.isFinite(v)&&v>lastId) lastId=Math.trunc(v);
+    });
+  }
   const pad=n=>String(n).padStart(2,'0');
   function nowStr(){
     const d=new Date();
@@ -142,22 +180,41 @@
   function esc(s){const e=document.createElement('div');e.textContent=s;return e.innerHTML;}
   function setMsg(t,c){const e=document.getElementById('msg');e.textContent=t||'';e.className='msg '+(c||'');}
 
+  // Hypertension Canada 2025 primary-care guideline (home BP monitoring).
+  // Diagnostic threshold for hypertension: >=130/80. Treatment threshold for
+  // most adults: >=140/90. Systolic >120 is a watch point for adults 50+ or
+  // those at elevated cardiovascular risk.
   function classify(s,d){
+    if(!Number.isFinite(s)||!Number.isFinite(d)) return {l:'Invalid',c:'var(--muted)'};
     if(s>=180||d>=120) return {l:'Crisis',c:'var(--crisis)'};
-    if(s>=140||d>=90)  return {l:'High 2',c:'var(--high2)'};
-    if(s>=130||d>=80)  return {l:'High 1',c:'var(--high1)'};
-    if(s>=120)         return {l:'Elevated',c:'var(--elevated)'};
+    if(s>=140||d>=90)  return {l:'Treat',c:'var(--high2)'};
+    if(s>=130||d>=80)  return {l:'HTN',c:'var(--high1)'};
+    if(s>=120)         return {l:'Watch',c:'var(--elevated)'};
     return {l:'Normal',c:'var(--normal)'};
   }
 
+  // Returns a clean record, or null if the input can't be trusted as a reading.
+  // Callers must drop nulls -- NaN must never reach the DB, the stats or the chart.
   function normalize(en){
+    if(!en || typeof en!=='object') return null;
+    const sys=Math.trunc(Number(en.sys));
+    const dia=Math.trunc(Number(en.dia));
+    if(!Number.isFinite(sys)||!Number.isFinite(dia)) return null;
+    if(sys<40||sys>260||dia<20||dia>200) return null;
+    let id=Number.isFinite(Number(en.id))?Math.trunc(Number(en.id)):newId();
+    if(id===META_ID) id=newId();           // never let a reading occupy the meta key
+    let pulse=null;
+    if(en.pulse!=null){
+      const p=Math.trunc(Number(en.pulse));
+      if(Number.isFinite(p)&&p>=25&&p<=250) pulse=p;
+    }
     return {
-      id: Number.isFinite(en&&en.id)?Math.trunc(en.id):newId(),
-      date: (en&&en.date)?String(en.date):nowStr(),
-      sys: Math.trunc(Number(en&&en.sys)),
-      dia: Math.trunc(Number(en&&en.dia)),
-      pulse:(en&&en.pulse!=null&&Number.isFinite(Number(en.pulse)))?Math.trunc(Number(en.pulse)):null,
-      note:(en&&en.note)?String(en.note):null
+      id: id,
+      date: en.date?String(en.date):nowStr(),
+      sys: sys,
+      dia: dia,
+      pulse: pulse,
+      note: en.note?String(en.note).slice(0,200):null   // cap: restored files bypass the input's maxlength
     };
   }
   function sortEntries(l){ return l.slice().sort((a,b)=> b.date.localeCompare(a.date)||b.id-a.id); }
@@ -196,13 +253,20 @@
       r.onerror=()=>rej(r.error);
     });
   }
+  // Resolves with the records that were actually committed. A partial failure
+  // aborts the transaction, so nothing is half-written and the UI stays in sync.
   function dbPutMany(list){
     return new Promise((res,rej)=>{
       const t=db.transaction(STORE,'readwrite');
       const s=t.objectStore(STORE);
-      list.forEach(r=>s.put(r));
-      t.oncomplete=()=>res(true);
-      t.onerror=()=>rej(t.error);
+      const ok=[];
+      list.forEach(r=>{
+        const req=s.put(r);
+        req.onsuccess=()=>ok.push(r);
+      });
+      t.oncomplete=()=>res(ok);
+      t.onerror=()=>rej(t.error||new Error('write transaction failed'));
+      t.onabort=()=>rej(t.error||new Error('write transaction aborted (storage full?)'));
     });
   }
 
@@ -215,8 +279,9 @@
 
   // ---------- rendering ----------
   function avg(k){
-    if(!entries.length) return '—';
-    return Math.round(entries.reduce((a,b)=>a+b[k],0)/entries.length);
+    const vals=entries.map(e=>e[k]).filter(Number.isFinite);
+    if(!vals.length) return '—';
+    return Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
   }
 
   function renderChart(){
@@ -260,7 +325,7 @@
     document.getElementById('avgDia').textContent = avg('dia');
     document.getElementById('latest').textContent = entries.length? entries[0].sys+'/'+entries[0].dia : '—';
 
-    ['csvBtn','backupBtn','shareBtn'].forEach(id=>{ document.getElementById(id).disabled = entries.length===0; });
+    ['csvBtn','backupBtn'].forEach(id=>{ document.getElementById(id).disabled = entries.length===0; });
 
     const log=document.getElementById('log');
     if(!entries.length){
@@ -284,33 +349,45 @@
       });
     }
     renderChart();
-    updateReminder();
   }
 
   // ---------- actions ----------
+  let adding=false;
   async function onAdd(){
+    if(adding) return;            // a second tap before the write resolves would duplicate the entry
     setMsg('');
     const sRaw=document.getElementById('fSys').value.trim();
     const dRaw=document.getElementById('fDia').value.trim();
     const pRaw=document.getElementById('fPulse').value.trim();
     const note=document.getElementById('fNote').value.trim();
-    const s=parseInt(sRaw,10), d=parseInt(dRaw,10);
+    // parseInt would silently accept "124.7" as 124 and "12ab" as 12 -- a blood
+    // pressure the user never entered. Require the field to be a whole number.
+    const whole=v=>/^\d+$/.test(v)?Number(v):NaN;
+    const s=whole(sRaw), d=whole(dRaw);
 
-    if(!Number.isFinite(s)||s<40||s>260){ setMsg('Systolic must be 40–260.','err'); return; }
-    if(!Number.isFinite(d)||d<20||d>200){ setMsg('Diastolic must be 20–200.','err'); return; }
+    if(!Number.isFinite(s)||s<40||s>260){ setMsg('Systolic must be a whole number, 40–260.','err'); return; }
+    if(!Number.isFinite(d)||d<20||d>200){ setMsg('Diastolic must be a whole number, 20–200.','err'); return; }
     if(s<=d){ setMsg('Systolic should be higher than diastolic.','err'); return; }
     let p=null;
     if(pRaw!==''){
-      p=parseInt(pRaw,10);
-      if(!Number.isFinite(p)||p<25||p>250){ setMsg('Pulse must be 25–250 or blank.','err'); return; }
+      p=whole(pRaw);
+      if(!Number.isFinite(p)||p<25||p>250){ setMsg('Pulse must be a whole number, 25–250, or blank.','err'); return; }
     }
 
     const rec=normalize({id:newId(),date:nowStr(),sys:s,dia:d,pulse:p,note:note||null});
+    if(!rec){ setMsg('Could not build a valid record from those values.','err'); return; }
+
+    adding=true;
+    const btn=document.getElementById('addBtn');
+    btn.disabled=true;
     try{
       await dbPut(rec);
     }catch(e){
       setMsg('Save failed: '+(e.message||e)+' — nothing was recorded.','err');
       return;
+    }finally{
+      adding=false;
+      btn.disabled=false;
     }
     entries=sortEntries([rec,...entries]);
     render();
@@ -341,81 +418,21 @@
 
   function exportCsv(){
     if(!entries.length) return;
-    const rows=[['Date & Time','Systolic','Diastolic','Pulse','Category','Comment']];
+    const rows=[['Date','Time','Systolic','Diastolic','Pulse','Category','Comment']];
     entries.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.id-b.id).forEach(en=>{
       const c=classify(en.sys,en.dia);
-      rows.push([en.date,en.sys,en.dia,en.pulse!=null?en.pulse:'',c.l,en.note?'"'+en.note.replace(/"/g,'""')+'"':'']);
+      // Separate columns parse as real date/time in Excel and Sheets across locales.
+      const sp=String(en.date).split(' ');
+      rows.push([sp[0]||'',sp[1]||'',en.sys,en.dia,en.pulse!=null?en.pulse:'',c.l,
+                 en.note?'"'+en.note.replace(/"/g,'""')+'"':'']);
     });
     download('\uFEFF'+rows.map(r=>r.join(',')).join('\r\n'),'text/csv;charset=utf-8;','bp-log-'+todayStr()+'.csv');
     setMsg('CSV downloaded.','ok');
   }
 
-  const META_ID = -1; // reserved key in the same store for app metadata
-  let lastBackup = null;
-
-  function markBackedUp(){
-    lastBackup = todayStr();
-    dbPut({id:META_ID, meta:true, lastBackup:lastBackup}).catch(()=>{});
-    updateReminder();
-  }
-
-  function daysSince(dateStr){
-    if(!dateStr) return null;
-    const then=new Date(dateStr+'T00:00:00');
-    if(isNaN(then)) return null;
-    return Math.floor((Date.now()-then.getTime())/86400000);
-  }
-
-  function updateReminder(){
-    const b=document.getElementById('reminder');
-    if(!b) return;
-    if(!entries.length){ b.style.display='none'; return; }
-    const d=daysSince(lastBackup);
-    if(lastBackup===null){
-      b.style.display='block';
-      b.className='banner warn';
-      b.textContent='Never backed up. Data lives only on this phone — tap Email or Backup.';
-    }else if(d!==null && d>=30){
-      b.style.display='block';
-      b.className='banner warn';
-      b.textContent='Last backup was '+d+' days ago. Tap Email to send yourself a fresh copy.';
-    }else{
-      b.style.display='none';
-    }
-  }
-
-  async function shareBackup(){
-    if(!entries.length) return;
-    const name='bp-backup-'+todayStr()+'.json';
-    const body=JSON.stringify(entries,null,2);
-
-    // Web Share Level 2: hands the file to Gmail/Drive/etc. with the attachment already set.
-    if(navigator.canShare && typeof File==='function'){
-      try{
-        const file=new File([body],name,{type:'application/json'});
-        if(navigator.canShare({files:[file]})){
-          await navigator.share({
-            files:[file],
-            title:'Blood pressure backup',
-            text:'BP backup — '+entries.length+' readings as of '+todayStr()+'.'
-          });
-          markBackedUp();
-          setMsg('Shared '+entries.length+' readings.','ok');
-          return;
-        }
-      }catch(err){
-        if(err && err.name==='AbortError'){ setMsg('Share cancelled.',''); return; }
-        // fall through to download
-      }
-    }
-    download(body,'application/json;charset=utf-8;',name);
-    setMsg('Sharing unavailable here — file downloaded instead, attach it manually.','warn');
-  }
-
   function backup(){
     if(!entries.length) return;
     download(JSON.stringify(entries,null,2),'application/json;charset=utf-8;','bp-backup-'+todayStr()+'.json');
-    markBackedUp();
     setMsg('Backup downloaded.','ok');
   }
 
@@ -427,17 +444,19 @@
       try{
         const parsed=JSON.parse(ev.target.result);
         if(!Array.isArray(parsed)) throw new Error('not a backup file');
-        const valid=parsed
-          .filter(x=>x&&Number.isFinite(Number(x.sys))&&Number.isFinite(Number(x.dia))&&x.date)
-          .map(normalize);
+        seedIds(parsed);
+        // normalize() rejects junk and re-keys anything claiming the meta slot.
+        const valid=parsed.map(normalize).filter(Boolean);
+        const skipped=parsed.length-valid.length;
         if(!valid.length) throw new Error('no valid entries');
-        await dbPutMany(valid);
+        const written=await dbPutMany(valid);
+        // Merge only what actually reached the DB, so the UI can't claim more than was stored.
         const byId={};
         entries.forEach(en=>byId[en.id]=en);
-        valid.forEach(en=>byId[en.id]=en);
+        written.forEach(en=>byId[en.id]=en);
         entries=sortEntries(Object.values(byId));
         render();
-        setMsg('Restored '+valid.length+' entries.','ok');
+        setMsg('Restored '+written.length+' entries'+(skipped?' ('+skipped+' skipped as invalid)':'')+'.','ok');
       }catch(err){
         setMsg('Restore failed: '+err.message,'err');
       }
@@ -453,14 +472,20 @@
     if(el) el.textContent=nowStr();
   }
 
-  async function init(){
+  // Re-sync when the app returns to the foreground: a backgrounded PWA has its
+  // timers throttled, so the label would otherwise be stale on resume.
+  function watchClock(){
     tickClock();
-    setInterval(tickClock,15000);
+    setInterval(tickClock,1000);
+    document.addEventListener('visibilitychange',()=>{ if(!document.hidden) tickClock(); });
+  }
+
+  async function init(){
+    watchClock();
 
     document.getElementById('addBtn').addEventListener('click',onAdd);
     document.getElementById('csvBtn').addEventListener('click',exportCsv);
     document.getElementById('backupBtn').addEventListener('click',backup);
-    document.getElementById('shareBtn').addEventListener('click',shareBackup);
     document.getElementById('restoreBtn').addEventListener('click',()=>document.getElementById('restoreFile').click());
     document.getElementById('restoreFile').addEventListener('change',restore);
     ['fSys','fDia','fPulse','fNote'].forEach(id=>{
@@ -470,9 +495,8 @@
     try{
       db=await openDB();
       const all=await dbAll();
-      const meta=all.find(r=>r&&r.meta===true);
-      lastBackup=meta&&meta.lastBackup?meta.lastBackup:null;
-      entries=sortEntries(all.filter(r=>r&&r.meta!==true).map(normalize));
+      seedIds(all);
+      entries=sortEntries(all.filter(r=>r&&r.meta!==true).map(normalize).filter(Boolean));
     }catch(e){
       showBanner('Local database unavailable ('+(e.message||e)+'). Entries cannot be saved on this device — try a normal (non-private) browser window.');
       document.getElementById('addBtn').disabled=true;
