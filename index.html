@@ -60,13 +60,24 @@
   svg{display:block;width:100%;height:auto;}
 
   .log{display:flex;flex-direction:column;gap:6px;}
-  .entry{display:grid;grid-template-columns:5px 1fr auto auto;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 10px;}
+  .entry{display:grid;grid-template-columns:5px 1fr auto auto auto;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 10px;}
   .bar{align-self:stretch;border-radius:3px;}
   .reading{font-family:var(--mono);font-size:18px;font-weight:700;display:flex;align-items:baseline;gap:7px;}
   .reading .pulse{font-size:11px;color:var(--muted);font-weight:500;}
   .date{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:1px;}
   .note{font-size:11.5px;color:var(--muted);margin-top:2px;font-style:italic;word-break:break-word;}
+  /* The editor drops to its own full-width row: sharing the line with the tag
+     and the two buttons left it about 85px wide on a narrow phone. */
+  .note-edit{grid-column:2 / -1;margin-top:2px;}
+  /* span 2, not 1/-1: -1 resolves against the explicit grid, so it would not
+     reach the implicit row the editor sits on. */
+  .entry.editing .bar{grid-row:1 / span 2;}
+  /* 16px like the other inputs: anything smaller makes iOS zoom the page on focus. */
+  .noteInput{width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:6px;color:var(--text);padding:7px 8px;font-family:var(--sans);font-size:16px;}
+  .noteInput:focus{outline:none;border-color:var(--muted);}
   .tag{font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.05em;padding:3px 6px;border-radius:4px;white-space:nowrap;}
+  .edit{background:none;color:var(--muted);font-size:15px;line-height:1;padding:6px 7px;}
+  .edit:active{color:var(--text);}
   .del{background:none;color:var(--muted);font-size:19px;line-height:1;padding:4px 7px;}
   .del:active{color:var(--high2);}
   .empty{color:var(--muted);font-family:var(--mono);font-size:11.5px;text-align:center;padding:22px 0;}
@@ -150,6 +161,8 @@
   const DB_NAME='bpLogDB', STORE='readings', DB_VER=1;
   const META_ID=-1;          // legacy metadata key: kept so old records stay out of the log
   let db=null, entries=[];
+  let editingId=null;        // id of the entry whose comment is currently being edited, if any
+  let commitOpen=null;       // commits that editor; null whenever none is open
 
   // Monotonic millisecond timestamp. Multiplying a ms epoch by a stride would
   // exceed Number.MAX_SAFE_INTEGER and silently lose precision, so instead we
@@ -328,27 +341,89 @@
     ['csvBtn','backupBtn'].forEach(id=>{ document.getElementById(id).disabled = entries.length===0; });
 
     const log=document.getElementById('log');
+    commitOpen=null;                    // re-set by mountEditor if an editor survives this render
     if(!entries.length){
       log.innerHTML='<div class="empty">No readings yet.</div>';
     }else{
+      // Rebuilding the list discards the open editor, so carry any half-typed
+      // text across the render instead of resetting it to the stored note.
+      const live=editingId!=null?log.querySelector(`[data-noteinput="${editingId}"]`):null;
+      const draft=live?live.value:null;
+
       log.innerHTML=entries.map(en=>{
         const c=classify(en.sys,en.dia);
-        return `<div class="entry">
+        const editing=en.id===editingId;
+        return `<div class="entry${editing?' editing':''}">
           <div class="bar" style="background:${c.c}"></div>
           <div>
             <div class="reading">${en.sys}/${en.dia}${en.pulse!=null?`<span class="pulse">${en.pulse} bpm</span>`:''}</div>
             <div class="date">${esc(en.date)}</div>
-            ${en.note?`<div class="note">${esc(en.note)}</div>`:''}
+            ${!editing&&en.note?`<div class="note">${esc(en.note)}</div>`:''}
           </div>
           <span class="tag" style="color:${c.c};border:1px solid ${c.c}">${c.l}</span>
+          <button class="edit" data-edit="${en.id}" aria-label="Edit comment">&#9998;</button>
           <button class="del" data-del="${en.id}" aria-label="Delete">&times;</button>
+          ${editing?`<div class="note-edit"><input type="text" class="noteInput" data-noteinput="${en.id}" maxlength="200" placeholder="Add a comment"></div>`:''}
         </div>`;
       }).join('');
-      log.querySelectorAll('[data-del]').forEach(b=>{
-        b.addEventListener('click',()=>removeEntry(parseInt(b.getAttribute('data-del'),10)));
-      });
+
+      if(editingId!=null) mountEditor(log,editingId,draft);
     }
     renderChart();
+  }
+
+  // Wires up the one open comment editor. The id is captured per call so a
+  // pending save always targets the row it was opened on, even if the user has
+  // since started editing a different row.
+  function mountEditor(log,id,draft){
+    const inp=log.querySelector(`[data-noteinput="${id}"]`);
+    if(!inp) return;
+    const en=entries.find(x=>x.id===id);
+    inp.value=draft!=null?draft:(en&&en.note?en.note:'');
+    inp.focus();
+    inp.setSelectionRange(inp.value.length,inp.value.length);
+    // Enter and blur are two routes to the same commit, and the trailing blur
+    // from tearing the editor down would otherwise run it a second time.
+    // Enter commits directly rather than via blur(): blur does not fire reliably
+    // when the window is unfocused, which would silently drop the edit.
+    let settled=false;
+    const commit=()=>{ if(!settled){ settled=true; saveNote(id,inp.value); } };
+    commitOpen=commit;
+    inp.addEventListener('blur',commit);
+    inp.addEventListener('keydown',ev=>{
+      if(ev.key==='Enter'){ ev.preventDefault(); commit(); }
+      else if(ev.key==='Escape'){ ev.preventDefault(); settled=true; closeEditor(id); }
+    });
+  }
+
+  // Switching rows saves the row being left. Tearing an editor out of the DOM
+  // fires no blur, so relying on blur alone would silently drop that edit.
+  function startEdit(id){
+    if(editingId!=null&&editingId!==id&&commitOpen) commitOpen();
+    editingId=id;
+    render();
+  }
+  // Only the row that owns the editor may close it -- a save resolving late must
+  // not tear down an editor the user has already opened somewhere else.
+  function closeEditor(id){ if(editingId===id){ editingId=null; render(); } }
+
+  async function saveNote(id,value){
+    const idx=entries.findIndex(x=>x.id===id);
+    if(idx===-1){ closeEditor(id); return; }
+    const note=value.trim().slice(0,200)||null;
+    if(note===entries[idx].note){ closeEditor(id); return; }   // nothing changed: skip the write
+    const rec={...entries[idx],note};
+    try{
+      await dbPut(rec);
+    }catch(e){
+      setMsg('Save failed: '+(e.message||e)+' — the comment was not changed.','err');
+      closeEditor(id);
+      return;
+    }
+    entries[idx]=rec;
+    if(editingId===id) editingId=null;
+    render();                                   // always: the row's note text changed
+    setMsg(note?'Comment updated.':'Comment cleared.','ok');
   }
 
   // ---------- actions ----------
@@ -484,6 +559,14 @@
     watchClock();
 
     document.getElementById('addBtn').addEventListener('click',onAdd);
+    // Delegated once on the container: render() replaces the list wholesale, so
+    // per-row listeners would have to be rebuilt on every single render.
+    document.getElementById('log').addEventListener('click',ev=>{
+      const del=ev.target.closest('[data-del]');
+      if(del){ removeEntry(Number(del.getAttribute('data-del'))); return; }
+      const ed=ev.target.closest('[data-edit]');
+      if(ed) startEdit(Number(ed.getAttribute('data-edit')));
+    });
     document.getElementById('csvBtn').addEventListener('click',exportCsv);
     document.getElementById('backupBtn').addEventListener('click',backup);
     document.getElementById('restoreBtn').addEventListener('click',()=>document.getElementById('restoreFile').click());

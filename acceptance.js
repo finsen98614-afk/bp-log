@@ -1,11 +1,12 @@
 // Acceptance tests: load the REAL index.html into jsdom with a real
 // (in-memory) IndexedDB and drive it the way a user would.
 const fs = require('fs');
+const path = require('path');
 const { JSDOM, VirtualConsole } = require('jsdom');
 const FDBFactory = require('fake-indexeddb/lib/FDBFactory');
 const FDBKeyRange = require('fake-indexeddb/lib/FDBKeyRange');
 
-const HTML = fs.readFileSync('/home/claude/bp-pwa/index.html', 'utf8');
+const HTML = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
 let passed = 0, failed = 0;
 const failures = [];
@@ -462,6 +463,143 @@ async function readBlob(blob) {
     check('AT-17.6 oversized note from restore is capped', note && note.textContent.length === 200,
       note ? String(note.textContent.length) : 'no note');
     dom3.window.close();
+  }
+
+  console.log('\n=== AT-18  Edit the comment on a posted entry ===');
+  {
+    // Opens the editor on the row matching `match`, types `text`, then commits
+    // with `key`. render() replaces the row on open, so the input is re-queried.
+    async function editComment(dom, match, text, key = 'Enter') {
+      const row = logRows(dom).find(r => r.textContent.includes(match));
+      row.querySelector('.edit').click();
+      await sleep(20);
+      const inp = $(dom, '.noteInput');
+      if (!inp) return null;
+      inp.value = text;
+      inp.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      await sleep(80);
+      return inp;
+    }
+    const noteOf = (dom, match) => {
+      const row = logRows(dom).find(r => r.textContent.includes(match));
+      const n = row && row.querySelector('.note');
+      return n ? n.textContent : null;
+    };
+
+    const factory = new FDBFactory();
+    const dom = await boot({ keepFactory: factory });
+    await addReading(dom, 124, 79, 70, 'original');
+    await addReading(dom, 118, 76);
+
+    check('AT-18.1 every row has an edit button',
+      logRows(dom).every(r => r.querySelector('.edit') !== null));
+    check('AT-18.2 edit button is labelled for screen readers',
+      logRows(dom)[0].querySelector('.edit').getAttribute('aria-label') === 'Edit comment');
+
+    // Open the editor and inspect it before committing.
+    logRows(dom).find(r => r.textContent.includes('124/79')).querySelector('.edit').click();
+    await sleep(20);
+    check('AT-18.3 editor opens as a text input', $(dom, '.noteInput') !== null);
+    check('AT-18.4 editor is prefilled with the existing comment', $(dom, '.noteInput').value === 'original');
+    check('AT-18.5 editor is focused', dom.window.document.activeElement === $(dom, '.noteInput'));
+    check('AT-18.6 category tag stays visible while editing',
+      logRows(dom).find(r => r.textContent.includes('124/79')).querySelector('.tag').textContent === 'Watch');
+    check('AT-18.7 input is capped at 200 chars', $(dom, '.noteInput').getAttribute('maxlength') === '200');
+    // Escape must discard, not save.
+    $(dom, '.noteInput').dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await sleep(60);
+    check('AT-18.8 Escape closes the editor', $(dom, '.noteInput') === null);
+    check('AT-18.9 Escape discards the edit', noteOf(dom, '124/79') === 'original');
+
+    await editComment(dom, '124/79', 'edited via Enter');
+    check('AT-18.10 Enter commits the new comment', noteOf(dom, '124/79') === 'edited via Enter', String(noteOf(dom, '124/79')));
+    check('AT-18.11 confirmation shown', msgText(dom) === 'Comment updated.', msgText(dom));
+    check('AT-18.12 editor closed after commit', $(dom, '.noteInput') === null);
+
+    // A row that never had a comment must still be able to gain one.
+    check('AT-18.13 second row starts with no comment', noteOf(dom, '118/76') === null);
+    await editComment(dom, '118/76', 'added later');
+    check('AT-18.14 comment can be added to a row that had none', noteOf(dom, '118/76') === 'added later');
+
+    // Clearing back to empty must drop the note, not store "".
+    await editComment(dom, '118/76', '   ');
+    check('AT-18.15 blanking the comment removes it', noteOf(dom, '118/76') === null);
+    check('AT-18.16 clearing reports its own message', msgText(dom) === 'Comment cleared.', msgText(dom));
+
+    // Editing must not disturb the reading itself.
+    check('AT-18.17 reading values untouched by an edit',
+      logRows(dom).some(r => r.querySelector('.reading').textContent.includes('124/79')));
+    check('AT-18.18 pulse untouched by an edit', logRows(dom).some(r => r.textContent.includes('70 bpm')));
+    check('AT-18.19 entry count unchanged by edits', logRows(dom).length === 2);
+
+    // Markup typed into the editor must render as text, like the add form.
+    await editComment(dom, '124/79', '<img src=x onerror=alert(1)>');
+    const edited = logRows(dom).find(r => r.textContent.includes('124/79'));
+    check('AT-18.20 edited comment cannot inject an element', edited.querySelector('.note img') === null);
+    check('AT-18.21 edited markup shown as literal text', edited.querySelector('.note').textContent.includes('<img'));
+
+    // Over-long input bypassing maxlength (paste, scripted) is still capped.
+    await editComment(dom, '124/79', 'z'.repeat(5000));
+    check('AT-18.22 over-long comment capped at 200', noteOf(dom, '124/79').length === 200,
+      String(noteOf(dom, '124/79').length));
+    dom.window.close();
+
+    const dom2 = await boot({ keepFactory: factory });
+    check('AT-18.23 edited comment survives restart', noteOf(dom2, '124/79').length === 200);
+    check('AT-18.24 cleared comment stays cleared after restart', noteOf(dom2, '118/76') === null);
+    dom2.window.close();
+  }
+
+  console.log('\n=== AT-19  Delete still works alongside edit ===');
+  {
+    const dom = await boot();
+    await addReading(dom, 120, 80, '', 'keep');
+    await addReading(dom, 130, 85, '', 'drop');
+    logRows(dom)[0].querySelector('.del').click();
+    await sleep(60);
+    check('AT-19.1 delete removes the row', logRows(dom).length === 1);
+    check('AT-19.2 the right row survived', logRows(dom)[0].textContent.includes('120/80'));
+    // The surviving row's editor must still be wired after the re-render.
+    logRows(dom)[0].querySelector('.edit').click();
+    await sleep(20);
+    check('AT-19.3 editor still opens after a delete re-render', $(dom, '.noteInput') !== null);
+    dom.window.close();
+  }
+
+  console.log('\n=== AT-20  Leaving an open editor must not lose the edit ===');
+  {
+    const dom = await boot();
+    await addReading(dom, 124, 79, 70, 'first');
+    await addReading(dom, 132, 84, 68, 'second');
+    const noteOf = match => {
+      const row = logRows(dom).find(r => r.textContent.includes(match));
+      const n = row && row.querySelector('.note');
+      return n ? n.textContent : null;
+    };
+
+    // Open row A, type, then jump straight to row B. Pulling the editor out of
+    // the DOM fires no blur, so the switch itself has to commit row A.
+    logRows(dom).find(r => r.textContent.includes('124/79')).querySelector('.edit').click();
+    await sleep(20);
+    $(dom, '.noteInput').value = 'A committed on switch';
+    logRows(dom).find(r => r.textContent.includes('132/84')).querySelector('.edit').click();
+    await sleep(100);
+    check('AT-20.1 the row being left is saved', noteOf('124/79') === 'A committed on switch', String(noteOf('124/79')));
+    check('AT-20.2 exactly one editor open', dom.window.document.querySelectorAll('.noteInput').length === 1,
+      String(dom.window.document.querySelectorAll('.noteInput').length));
+    check('AT-20.3 the new editor holds its own comment', $(dom, '.noteInput').value === 'second', $(dom, '.noteInput').value);
+    check('AT-20.4 the other row is untouched', noteOf('132/84') === null);
+
+    // A render triggered by unrelated work must keep the half-typed draft.
+    $(dom, '.noteInput').value = 'B still being typed';
+    await addReading(dom, 110, 70);
+    check('AT-20.5 draft survives an unrelated re-render',
+      $(dom, '.noteInput') && $(dom, '.noteInput').value === 'B still being typed',
+      $(dom, '.noteInput') ? $(dom, '.noteInput').value : 'editor gone');
+    $(dom, '.noteInput').dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await sleep(80);
+    check('AT-20.6 that draft still commits', noteOf('132/84') === 'B still being typed', String(noteOf('132/84')));
+    dom.window.close();
   }
 
   console.log('\n' + '='.repeat(52));
