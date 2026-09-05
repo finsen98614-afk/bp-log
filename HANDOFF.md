@@ -6,8 +6,8 @@ Blood pressure tracking PWA. Local-first, offline-capable, no backend.
 - **Live:** https://finsen98614-afk.github.io/bp-log/
 - **Owner:** Finsen (GitHub `finsen98614-afk`, email `finsen98614@gmail.com`)
 - **Device:** Redmi 14 Pro, Android, Chrome. Installed as a PWA from the app drawer.
-- **Current version:** service worker cache `bp-log-v10`
-- **Tests:** 170 acceptance checks — `npm install && npm test`
+- **Current version:** service worker cache `bp-log-v11`
+- **Tests:** 179 checks (170 app + 9 service worker) — `npm install && npm test`
 
 ---
 
@@ -31,11 +31,12 @@ Everything lives at repo root. Flat structure — GitHub Pages serves from `/`.
 
 ```
 index.html      ~34 KB   entire app: markup, CSS, and JS in one file
-sw.js                    service worker, cache-first with network revalidate
+sw.js                    service worker: network-first shell, cache-first assets
 manifest.json            PWA manifest, relative paths so any repo name works
 icon-192.png             maskable icon
 icon-512.png             maskable icon
-acceptance.js            test suite (not deployed; keep in repo for CI/local runs)
+acceptance.js            app test suite (not deployed; keep in repo for CI/local runs)
+sw.test.js               service worker tests, run by the same `npm test`
 package.json             declares the two test dependencies and `npm test`
 package-lock.json        pins them, so a fresh clone tests against what shipped
 .gitignore               keeps node_modules out of the deployed root
@@ -162,10 +163,42 @@ so a future jsdom change breaks the run loudly instead of quietly.
 5. Wait ~1–2 min for Pages.
 6. On the phone: fully close the PWA (not just background) and reopen. The new service worker takes over once the old one releases.
 
-Step 6 used to sometimes need a second close/open. The install handler now fetches
-its assets with `cache: 'reload'`, so a new worker can no longer populate its cache
-from the previous deploy's HTTP-cached files. If a single reopen ever stops being
-enough again, suspect that line first.
+### Why step 6 used to need two opens
+
+Worth recording, because the obvious diagnosis was wrong.
+
+Under cache-first, the worker that is **already active** answers the navigation
+before the incoming worker exists. So launch 1 rendered the old shell from the old
+cache, and only afterwards did the new worker install, `skipWaiting()`, activate and
+claim — too late for a page that had already rendered. Launch 2 got the new shell.
+`skipWaiting()` cannot fix this; nothing can, as long as the shell is served
+cache-first.
+
+It was first blamed on `addAll()` reading `index.html` from the HTTP cache, and
+`cache: 'reload'` was added to rule that out. It didn't help, because that was never
+the cause. The line is kept anyway — it closes a real if secondary hole, where a new
+worker populates its fresh cache with the previous deploy's files.
+
+The shell is now network-first with a `NAV_TIMEOUT` fallback to cache, so one
+close/open is enough.
+
+**Testing a change to this logic takes two deploys.** The currently active worker
+serves the navigation, so version N's fetch behaviour is only observable from
+version N+1 onward. v11 introduced network-first; v10 was still active when it
+shipped, so v11 itself still took two opens. From v12 on, one should do it.
+
+`sw.test.js` now covers the routing itself: it loads `sw.js` under a stubbed
+service-worker global and asserts the shell is network-first, that offline, a
+non-OK status and a hanging connection all fall back to cache, and that assets
+stay cache-first. It takes an optional path argument, so a change can be run
+against the currently deployed copy for comparison:
+
+```bash
+git show main:sw.js > /tmp/old-sw.js && node sw.test.js /tmp/old-sw.js
+```
+
+What it cannot cover is the update lifecycle — which worker answers which launch.
+That still needs the device.
 
 ---
 
