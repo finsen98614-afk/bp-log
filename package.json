@@ -1,0 +1,13 @@
+{
+  "name": "bp-log",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Blood pressure tracking PWA. Local-first, offline-capable, no backend.",
+  "scripts": {
+    "test": "node acceptance.js"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.0.0",
+    "jsdom": "^25.0.0"
+  }
+}

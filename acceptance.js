@@ -1,11 +1,14 @@
 // Acceptance tests: load the REAL index.html into jsdom with a real
 // (in-memory) IndexedDB and drive it the way a user would.
 const fs = require('fs');
+const path = require('path');
 const { JSDOM, VirtualConsole } = require('jsdom');
 const FDBFactory = require('fake-indexeddb/lib/FDBFactory');
 const FDBKeyRange = require('fake-indexeddb/lib/FDBKeyRange');
 
-const HTML = fs.readFileSync('/home/claude/bp-pwa/index.html', 'utf8');
+// Resolve next to this file, not from the working directory, so `npm test`
+// works from anywhere in the repo and on any machine.
+const HTML = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
 let passed = 0, failed = 0;
 const failures = [];

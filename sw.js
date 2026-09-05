@@ -1,4 +1,4 @@
-const CACHE = 'bp-log-v9';
+const CACHE = 'bp-log-v10';
 const ASSETS = [
   './',
   './index.html',
@@ -9,7 +9,14 @@ const ASSETS = [
 
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE)
+      // addAll uses default fetch semantics, so it can satisfy these requests
+      // from the browser's HTTP cache. Pages serves index.html with a max-age,
+      // which meant a freshly installed worker could populate its brand-new
+      // cache with the PREVIOUS deploy's files -- the reason an update used to
+      // need a second close-and-reopen to appear. Force revalidation instead.
+      .then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
   );
 });
 

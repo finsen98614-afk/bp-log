@@ -6,8 +6,8 @@ Blood pressure tracking PWA. Local-first, offline-capable, no backend.
 - **Live:** https://finsen98614-afk.github.io/bp-log/
 - **Owner:** Finsen (GitHub `finsen98614-afk`, email `finsen98614@gmail.com`)
 - **Device:** Redmi 14 Pro, Android, Chrome. Installed as a PWA from the app drawer.
-- **Current version:** service worker cache `bp-log-v9`
-- **Tests:** 167 acceptance checks, all passing
+- **Current version:** service worker cache `bp-log-v10`
+- **Tests:** 167 acceptance checks — `npm install && npm test`
 
 ---
 
@@ -27,7 +27,7 @@ Read this before proposing a redesign — three earlier approaches were tried an
 
 ## Files
 
-All five live at repo root. Flat structure — GitHub Pages serves from `/`.
+Everything lives at repo root. Flat structure — GitHub Pages serves from `/`.
 
 ```
 index.html      ~34 KB   entire app: markup, CSS, and JS in one file
@@ -36,6 +36,9 @@ manifest.json            PWA manifest, relative paths so any repo name works
 icon-192.png             maskable icon
 icon-512.png             maskable icon
 acceptance.js            test suite (not deployed; keep in repo for CI/local runs)
+package.json             declares the two test dependencies and `npm test`
+.gitignore               keeps node_modules out of the deployed root
+HANDOFF.md               this file
 ```
 
 Single-file design is deliberate: no build step, no bundler, no dependencies. Editing means opening one file. Keep it that way unless there's a strong reason.
@@ -125,9 +128,12 @@ ESH/NICE home thresholds are deliberately the home-measurement values (135/85 co
 ## Testing
 
 ```bash
-npm install jsdom fake-indexeddb
-node acceptance.js
+npm install
+npm test
 ```
+
+Needs Node 18+. Dependencies are declared in `package.json`; `acceptance.js`
+resolves `index.html` relative to its own location, so it runs from anywhere.
 
 Loads the real `index.html` into jsdom with an in-memory IndexedDB and drives it as a user would — it is not a reimplementation of the logic. 167 checks across 21 groups: empty state, add, persistence across restart, validation, both guidelines' bands, delete, corrupt-data resilience, CSV, backup/restore round-trip, restore hardening, DB failure, chart, XSS in comments, id integrity, sorting, print report, guideline switching, reserved keys, and windowing.
 
@@ -143,10 +149,15 @@ Loads the real `index.html` into jsdom with an in-memory IndexedDB and drives it
 
 1. Edit `index.html` (and `sw.js` if needed).
 2. **Bump `const CACHE` in `sw.js`.** Non-negotiable.
-3. `node acceptance.js` — must be green.
+3. `npm test` — must be green.
 4. Commit and push to `main`.
 5. Wait ~1–2 min for Pages.
-6. On the phone: fully close the PWA (not just background) and reopen. The new service worker takes over once the old one releases; a second close/open may be needed.
+6. On the phone: fully close the PWA (not just background) and reopen. The new service worker takes over once the old one releases.
+
+Step 6 used to sometimes need a second close/open. The install handler now fetches
+its assets with `cache: 'reload'`, so a new worker can no longer populate its cache
+from the previous deploy's HTTP-cached files. If a single reopen ever stops being
+enough again, suspect that line first.
 
 ---
 

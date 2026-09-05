@@ -1,0 +1,3 @@
+# Test dependencies. Pages serves this repo from /, so these must never be
+# committed -- they would be published alongside the app.
+node_modules/

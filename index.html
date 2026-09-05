@@ -626,9 +626,15 @@
       const b=g.bands[i];
       rows.push('<tr><td><b style="color:'+b[3]+'">'+b[0]+'</b></td><td>'+bandRange(g,i)+'</td></tr>');
     }
-    const lowest=g.bands[g.bands.length-1];
-    rows.unshift('<tr><td><b style="color:'+g.normal+'">Normal</b></td><td>under '+lowest[1]+
-                 (lowest[2]===Infinity?' systolic':'/'+lowest[2])+'</td></tr>');
+    // The lowest band caps systolic, but it may carry no diastolic bound at all
+    // (Canada's "Watch" is systolic-only), so the diastolic limit has to come
+    // from the lowest FINITE minDia across every band. Reading it off the lowest
+    // band alone printed "under 120 systolic" for Canada, which told the user
+    // 110/85 was normal while classify() was tagging it HTN.
+    const loSys=g.bands[g.bands.length-1][1];
+    const loDia=Math.min(...g.bands.map(b=>b[2]).filter(Number.isFinite));
+    rows.unshift('<tr><td><b style="color:'+g.normal+'">Normal</b></td><td>under '+loSys+
+                 (Number.isFinite(loDia)?'/'+loDia:' systolic')+'</td></tr>');
     document.getElementById('refTable').innerHTML=rows.join('');
   }
 
