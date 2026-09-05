@@ -1,0 +1,170 @@
+# BP Log — Project Handoff
+
+Blood pressure tracking PWA. Local-first, offline-capable, no backend.
+
+- **Repo:** https://github.com/finsen98614-afk/bp-log (public, required for free GitHub Pages)
+- **Live:** https://finsen98614-afk.github.io/bp-log/
+- **Owner:** Finsen (GitHub `finsen98614-afk`, email `finsen98614@gmail.com`)
+- **Device:** Redmi 14 Pro, Android, Chrome. Installed as a PWA from the app drawer.
+- **Current version:** service worker cache `bp-log-v9`
+- **Tests:** 167 acceptance checks, all passing
+
+---
+
+## Why this architecture
+
+Read this before proposing a redesign — three earlier approaches were tried and abandoned for concrete reasons.
+
+| Attempt | Why it failed |
+|---|---|
+| Claude.ai artifact + `window.storage` | The storage bridge in the Claude mobile app webview returns `unexpected response type`. Host-level bug, unfixable from artifact code. Data silently never persisted. |
+| Google Sheets + Apps Script proxy | Works, but artifact iframe CSP may block `fetch` to `script.google.com`, and it needs a deploy step plus network access on every write. |
+| **PWA on GitHub Pages (current)** | IndexedDB in a real browser is reliable. No server, no auth, no network dependency. |
+
+**The lesson that shaped the code:** the original failure was optimistic UI — the screen showed "saved" while the write had failed. Every write path now `await`s the storage operation *before* updating the UI. If a write throws, the user sees an error and no row appears. Do not reintroduce optimistic updates.
+
+---
+
+## Files
+
+All five live at repo root. Flat structure — GitHub Pages serves from `/`.
+
+```
+index.html      ~34 KB   entire app: markup, CSS, and JS in one file
+sw.js                    service worker, cache-first with network revalidate
+manifest.json            PWA manifest, relative paths so any repo name works
+icon-192.png             maskable icon
+icon-512.png             maskable icon
+acceptance.js            test suite (not deployed; keep in repo for CI/local runs)
+```
+
+Single-file design is deliberate: no build step, no bundler, no dependencies. Editing means opening one file. Keep it that way unless there's a strong reason.
+
+---
+
+## Data model
+
+IndexedDB database `bpLogDB`, version 1, object store `readings`, `keyPath: 'id'`.
+
+A reading:
+
+```js
+{
+  id:    1757049600000,        // ms timestamp, monotonic, safe integer
+  date:  '2026-09-05 09:07',   // local time string, sorts lexicographically
+  sys:   124,                  // integer 40–260
+  dia:   79,                   // integer 20–200
+  pulse: 70,                   // integer 25–250, or null
+  note:  '啱啱飲完咖啡'          // string capped at 200 chars, or null
+}
+```
+
+**Reserved negative ids** — records with `meta: true`, filtered out of `entries` on load:
+
+| id | Purpose |
+|---|---|
+| `-1` | `META_ID` — legacy backup-date record from a removed feature. Kept only so old installs don't render it as a reading. |
+| `-2` | `SETTINGS_ID` — `{guideline: 'ca' \| 'intl'}` |
+
+`normalize()` re-keys any incoming record claiming `-1` or `-2`, so a hand-edited backup can't clobber settings.
+
+**Category is never stored.** It's computed at display time from the active guideline. This is what makes guideline switching relabel all history instantly without touching stored numbers.
+
+---
+
+## Key invariants — do not break these
+
+1. **Write before render.** `await dbPut(...)` succeeds before the row appears. See `onAdd()`.
+2. **`normalize()` is the gatekeeper.** Returns `null` for anything untrustworthy; every caller must `.filter(Boolean)`. NaN must never reach the DB, the stats, or the chart.
+3. **A failed read must not trigger a write.** If `openDB()` throws, `entries` is empty *and* the Add button is disabled, so an empty array can never overwrite real stored data.
+4. **Exports use `entries`, never the rendered window.** CSV, backup, and the printed report must cover every reading even when only 50 rows are on screen.
+5. **Ids stay safe integers.** An earlier scheme multiplied a ms epoch by a stride, exceeded `Number.MAX_SAFE_INTEGER`, lost precision, and produced collisions. `newId()` now returns a monotonic timestamp, seeded from the largest id already stored and from any restored backup.
+6. **Whole numbers only on input.** `parseInt('124.7')` silently yields `124` — a reading the user never took. Input uses `/^\d+$/`.
+7. **Bump the SW cache constant on every deploy.** `const CACHE = 'bp-log-vN'` in `sw.js`. Without a bump the old service worker keeps serving stale files and the update appears not to have worked.
+
+---
+
+## Guidelines
+
+Thresholds are data, not code — `GUIDELINES` in `index.html`. Each band is `[label, minSys, minDia, cssColour]`, tested top-down; a reading matching **either** number falls in that band.
+
+| Reading | Hypertension Canada 2025 | ESH 2023 / NICE |
+|---|---|---|
+| 118/75 | Normal | Normal |
+| 124/79 | Watch | Normal |
+| 132/82 | HTN | High-normal |
+| 137/86 | HTN | Stage 1 |
+| 142/91 | Treat | Stage 1 |
+| 152/96 | Treat | Stage 2 |
+
+- **ca** — Normal <120/80 · Watch 120–129 sys · HTN ≥130/80 · Treat ≥140/90 · Crisis ≥180/120
+- **intl** — Normal <130/80 · High-normal 130–134/80–84 · Stage 1 ≥135/85 · Stage 2 ≥150/95 · Crisis ≥180/120
+
+ESH/NICE home thresholds are deliberately the home-measurement values (135/85 corresponds to an office reading of 140/90), not office values. Canada is default; the Hong Kong use case is `intl`.
+
+**Adding a guideline:** add an entry to `GUIDELINES` and an `<option>` to `#glSelect`. The reference table, CSV Category column, and report footer all derive from the table automatically. Nothing else needs editing — that's the point of the data-driven design.
+
+---
+
+## Features
+
+| Feature | Notes |
+|---|---|
+| Add reading | Auto timestamp, no manual date entry. Optional comment. Enter key submits. Guarded against double-tap. |
+| Delete | Single delegated listener on `#log`, not one per row. |
+| Stats | Avg systolic, avg diastolic, latest. Non-finite values filtered out. |
+| Chart | Inline SVG, last 30 readings, systolic red / diastolic green. Hidden below 2 readings. |
+| Row windowing | 50 rows rendered by default with a "Show all N" toggle. Rebuilding the log dominated render cost. |
+| CSV export | UTF-8 BOM for Excel, separate Date and Time columns, comments quoted. |
+| Backup / Restore | JSON. Restore merges by id, skips invalid records and reports how many. |
+| Print report | For the doctor. Leads with 7-day / 30-day / all-readings averages, since guidelines assess a series average rather than single readings. Includes name/DOB blanks, category breakdown, full table, and guideline attribution. A4, black on white. |
+| Settings | Collapsed by default. Guideline selector only. |
+
+---
+
+## Testing
+
+```bash
+npm install jsdom fake-indexeddb
+node acceptance.js
+```
+
+Loads the real `index.html` into jsdom with an in-memory IndexedDB and drives it as a user would — it is not a reimplementation of the logic. 167 checks across 21 groups: empty state, add, persistence across restart, validation, both guidelines' bands, delete, corrupt-data resilience, CSV, backup/restore round-trip, restore hardening, DB failure, chart, XSS in comments, id integrity, sorting, print report, guideline switching, reserved keys, and windowing.
+
+**Run it after every change.** Several of these tests exist because the bug they catch actually shipped:
+
+- AT-21.3 asserts the report's category breakdown sums to the reading count — a hard-coded label list was dropping readings from the printed summary while the detail table still showed them.
+- AT-15.5 asserts the newest entry is deletable after restart — a float-id bug broke exactly this.
+- AT-17.2 asserts decimals are rejected rather than truncated.
+
+---
+
+## Deploying
+
+1. Edit `index.html` (and `sw.js` if needed).
+2. **Bump `const CACHE` in `sw.js`.** Non-negotiable.
+3. `node acceptance.js` — must be green.
+4. Commit and push to `main`.
+5. Wait ~1–2 min for Pages.
+6. On the phone: fully close the PWA (not just background) and reopen. The new service worker takes over once the old one releases; a second close/open may be needed.
+
+---
+
+## Known limits
+
+- **Data is local to the device.** No cloud sync. Losing or resetting the phone loses the history unless a JSON backup exists. `navigator.storage.persist()` is requested, which Android Chrome generally grants, but clearing Chrome site data still wipes it.
+- **Web Share for files does not work** in this device's PWA — `canShare({files})` is rejected. An Email button was built and removed; the backup downloads instead and must be attached manually. Don't rebuild it without testing on the actual device first.
+- **No encryption.** Anyone who opens the PWA on an unlocked phone sees the readings.
+- **Single-user.** No profiles.
+
+---
+
+## Possible next steps
+
+Nothing is committed to; these came up but weren't built.
+
+- Optional cloud sync (Apps Script endpoint already prototyped) — reintroduces the network dependency this design avoided.
+- Morning/evening tagging, which several guidelines treat separately.
+- Medication or symptom fields alongside the comment.
+- Date-range filter for the printed report.
+- Additional guidelines: JSH 2025 and ACC/AHA 2025 both publish home-BP thresholds and would slot into `GUIDELINES` directly.
