@@ -226,12 +226,55 @@ async function readBlob(blob) {
     await sleep(60);
     check('AT-6.1 row removed from UI', logRows(dom).length === 1);
     check('AT-6.2 correct row remained', logRows(dom)[0].textContent.includes('120/80'));
-    check('AT-6.3 confirmation shown', msgText(dom) === 'Deleted.');
+    check('AT-6.3 confirmation names the deleted reading',
+      /^Deleted 130\/85\./.test(msgText(dom)), msgText(dom));
+    check('AT-6.4 an undo is offered', $(dom, '#undoBtn') !== null);
     dom.window.close();
 
     const dom2 = await boot({ keepFactory: factory });
-    check('AT-6.4 deletion persisted across restart', logRows(dom2).length === 1);
+    check('AT-6.5 deletion persisted across restart', logRows(dom2).length === 1);
     dom2.window.close();
+  }
+
+  console.log('\n=== AT-6b  Undo a delete ===');
+  {
+    // A reading is a medical record with only manual backups, so a mis-tap on
+    // the row's delete must be recoverable.
+    const factory = new FDBFactory();
+    const dom = await boot({ keepFactory: factory });
+    await addReading(dom, 120, 80, 70, 'kept');
+    await addReading(dom, 138, 88, 66, 'oops');
+    const deletedId = logRows(dom)[0].querySelector('.del').getAttribute('data-del');
+    logRows(dom)[0].querySelector('.del').click();
+    await sleep(60);
+    check('AT-6b.1 row is gone before undo', logRows(dom).length === 1);
+    // Guarded so an absent control fails the checks below instead of throwing
+    // and taking the rest of the run with it.
+    const undoBtn = $(dom, '#undoBtn');
+    if (undoBtn) { undoBtn.click(); await sleep(80); }
+    check('AT-6b.2 undo puts the row back', logRows(dom).length === 2, 'got ' + logRows(dom).length);
+    check('AT-6b.3 values and comment survive',
+      logRows(dom)[0].textContent.includes('138/88') && logRows(dom)[0].textContent.includes('oops'));
+    check('AT-6b.4 the id is preserved, not reissued',
+      logRows(dom)[0].querySelector('.del').getAttribute('data-del') === deletedId,
+      logRows(dom)[0].querySelector('.del').getAttribute('data-del') + ' vs ' + deletedId);
+    check('AT-6b.5 the undo offer is withdrawn once used', $(dom, '#undoBtn') === null);
+    dom.window.close();
+
+    const dom2 = await boot({ keepFactory: factory });
+    check('AT-6b.6 the undo reached the database, not just the screen',
+      logRows(dom2).length === 2, 'got ' + logRows(dom2).length);
+    dom2.window.close();
+
+    // The offer lives in the message line; anything else that writes there
+    // retires it, so a stale Undo can never resurrect a much older deletion.
+    const dom3 = await boot();
+    await addReading(dom3, 120, 80);
+    logRows(dom3)[0].querySelector('.del').click();
+    await sleep(60);
+    await addReading(dom3, 125, 82);
+    check('AT-6b.7 a later action retires the offer', $(dom3, '#undoBtn') === null);
+    dom3.window.close();
   }
 
   console.log('\n=== AT-7  Corrupt stored data cannot poison the UI ===');
@@ -244,9 +287,17 @@ async function readBlob(blob) {
         { id: 4, date: '2026-08-13 09:00', sys: 9999, dia: 80 },
         { id: 5, date: '2026-08-14 09:00', sys: 130, dia: 85 },
         { id: -1, meta: true, lastBackup: '2026-08-01' },
+        // date was the one field normalize() used to wave through. Free text
+        // sorts wrong and prints a slice of itself as a chart axis label; a
+        // well-shaped but impossible date is worse, since it passes a regex.
+        { id: 6, date: 'yesterday', sys: 140, dia: 90 },
+        { id: 7, date: '2026-13-45 99:99', sys: 150, dia: 95 },
       ]
     });
     check('AT-7.1 only the 2 valid readings load', logRows(dom).length === 2, 'got ' + logRows(dom).length);
+    check('AT-7.5 free-text date rejected', !logRows(dom).some(r => r.textContent.includes('140/90')));
+    check('AT-7.6 well-formed but impossible date rejected',
+      !logRows(dom).some(r => r.textContent.includes('150/95')));
     check('AT-7.2 averages are numeric, not NaN', !$(dom, '#avgSys').textContent.includes('NaN'), $(dom, '#avgSys').textContent);
     check('AT-7.3 avg sys correct ((120+130)/2=125)', $(dom, '#avgSys').textContent === '125');
     check('AT-7.4 legacy meta record hidden from log',
@@ -273,6 +324,21 @@ async function readBlob(blob) {
     check('AT-8.3 header has separate Date and Time', lines[0].startsWith('Date,Time,Systolic'), lines[0]);
     check('AT-8.4 one header + two rows', lines.length === 3, 'got ' + lines.length);
     check('AT-8.5 comma inside comment is quoted', lines.some(l => l.includes('"coffee, then a walk"')));
+    {
+      // Excel and LibreOffice evaluate a field opening with = + - @ as a
+      // formula, and quoting does not stop them. This sheet goes to a clinic.
+      const d2 = await boot();
+      await addReading(d2, 121, 81, 70, '=1+1');
+      await addReading(d2, 122, 82, 70, '@SUM(A1)');
+      await addReading(d2, 123, 83, 70, 'after coffee');
+      $(d2, '#csvBtn').click();
+      await sleep(40);
+      const csv2 = await readBlob(d2.window.__downloads.pop().blob);
+      check('AT-8.9 a formula-shaped comment is neutralised', csv2.includes(`"'=1+1"`), csv2);
+      check('AT-8.10 so is an @ command', csv2.includes(`"'@SUM(A1)"`));
+      check('AT-8.11 an ordinary comment is left alone', csv2.includes('"after coffee"'));
+      d2.window.close();
+    }
     check('AT-8.6 date and time in separate columns', /^\d{4}-\d{2}-\d{2},\d{2}:\d{2},/.test(lines[1]), lines[1]);
     check('AT-8.7 blank pulse leaves an empty field', lines.some(l => /,\d+,\d+,,/.test(l)));
     check('AT-8.8 oldest row first in export', lines[1].includes('124') || lines[1].includes('132'));
@@ -358,6 +424,9 @@ async function readBlob(blob) {
     check('AT-11.1 red banner shown', $(dom, '#banner').style.display === 'block');
     check('AT-11.2 banner explains the failure', /Local database unavailable/.test($(dom, '#banner').textContent));
     check('AT-11.3 Add button disabled so nothing looks saved', $(dom, '#addBtn').disabled === true);
+    // Restore writes too. Left enabled it reached dbPutMany with db null and
+    // surfaced "Cannot read properties of null" as if it were a file problem.
+    check('AT-11.5 Restore button disabled as well', $(dom, '#restoreBtn').disabled === true);
     check('AT-11.4 no yellow reminder banner exists', dom.window.document.getElementById('reminder') === null);
     dom.window.close();
   }
