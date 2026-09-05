@@ -37,6 +37,7 @@ icon-192.png             maskable icon
 icon-512.png             maskable icon
 acceptance.js            test suite (not deployed; keep in repo for CI/local runs)
 package.json             declares the two test dependencies and `npm test`
+package-lock.json        pins them, so a fresh clone tests against what shipped
 .gitignore               keeps node_modules out of the deployed root
 HANDOFF.md               this file
 ```
