@@ -60,24 +60,13 @@
   svg{display:block;width:100%;height:auto;}
 
   .log{display:flex;flex-direction:column;gap:6px;}
-  .entry{display:grid;grid-template-columns:5px 1fr auto auto auto;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 10px;}
+  .entry{display:grid;grid-template-columns:5px 1fr auto auto;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 10px;}
   .bar{align-self:stretch;border-radius:3px;}
   .reading{font-family:var(--mono);font-size:18px;font-weight:700;display:flex;align-items:baseline;gap:7px;}
   .reading .pulse{font-size:11px;color:var(--muted);font-weight:500;}
   .date{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:1px;}
   .note{font-size:11.5px;color:var(--muted);margin-top:2px;font-style:italic;word-break:break-word;}
-  /* The editor drops to its own full-width row: sharing the line with the tag
-     and the two buttons left it about 85px wide on a narrow phone. */
-  .note-edit{grid-column:2 / -1;margin-top:2px;}
-  /* span 2, not 1/-1: -1 resolves against the explicit grid, so it would not
-     reach the implicit row the editor sits on. */
-  .entry.editing .bar{grid-row:1 / span 2;}
-  /* 16px like the other inputs: anything smaller makes iOS zoom the page on focus. */
-  .noteInput{width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:6px;color:var(--text);padding:7px 8px;font-family:var(--sans);font-size:16px;}
-  .noteInput:focus{outline:none;border-color:var(--muted);}
   .tag{font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.05em;padding:3px 6px;border-radius:4px;white-space:nowrap;}
-  .edit{background:none;color:var(--muted);font-size:15px;line-height:1;padding:6px 7px;}
-  .edit:active{color:var(--text);}
   .del{background:none;color:var(--muted);font-size:19px;line-height:1;padding:4px 7px;}
   .del:active{color:var(--high2);}
   .empty{color:var(--muted);font-family:var(--mono);font-size:11.5px;text-align:center;padding:22px 0;}
@@ -88,8 +77,44 @@
   .ref summary{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);cursor:pointer;font-weight:600;}
   .ref table{width:100%;border-collapse:collapse;margin-top:9px;}
   .ref td{font-size:11px;color:var(--muted);padding:3px 0;vertical-align:top;line-height:1.45;}
-  .ref td:first-child{width:62px;font-family:var(--mono);font-size:10px;white-space:nowrap;}
+  .ref td:first-child{width:86px;font-family:var(--mono);font-size:10px;white-space:nowrap;padding-right:10px;}
   .ref p{font-size:10.5px;color:var(--muted);line-height:1.5;margin:9px 0 0;font-style:italic;}
+  #printArea{display:none;}
+
+  @media print{
+    @page{size:A4 portrait;margin:14mm 12mm;}
+    html,body{background:#fff !important;color:#000 !important;}
+    .wrap{display:none !important;}
+    #printArea{display:block !important;font-family:Georgia,'Times New Roman',serif;color:#000;}
+
+    #printArea .ph{border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:14px;}
+    #printArea .ph h1{font-size:17pt;margin:0 0 3px;font-weight:700;}
+    #printArea .ph .sub{font-size:9.5pt;color:#333;}
+    #printArea .idline{margin:12px 0 16px;font-size:10pt;}
+    #printArea .idline span{display:inline-block;min-width:165px;border-bottom:1px solid #000;margin-left:5px;}
+
+    #printArea .sum{width:100%;border-collapse:collapse;margin-bottom:6px;}
+    #printArea .sum td{border:1px solid #000;padding:6px 9px;font-size:10pt;vertical-align:top;}
+    #printArea .sum td.k{background:#eee;font-weight:700;width:36%;}
+
+    #printArea h2{font-size:11pt;margin:16px 0 7px;padding-bottom:3px;border-bottom:1px solid #000;}
+
+    #printArea table.rd{width:100%;border-collapse:collapse;font-size:9.5pt;}
+    #printArea table.rd th{background:#eee;border:1px solid #000;padding:5px 6px;text-align:left;font-size:8.5pt;text-transform:uppercase;letter-spacing:.04em;}
+    #printArea table.rd td{border:1px solid #000;padding:4px 6px;}
+    #printArea table.rd td.n{text-align:right;font-variant-numeric:tabular-nums;}
+    #printArea table.rd tr{page-break-inside:avoid;}
+    #printArea thead{display:table-header-group;}
+
+    #printArea .fn{margin-top:16px;font-size:8.5pt;line-height:1.55;color:#222;border-top:1px solid #999;padding-top:8px;}
+  }
+  .setrow{margin-top:10px;}
+  .setrow label{margin-bottom:6px;}
+  select{width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:7px;color:var(--text);padding:10px 9px;font-family:var(--mono);font-size:13px;}
+  select:focus{outline:none;border-color:var(--muted);}
+  .hint{font-size:10.5px;color:var(--muted);line-height:1.5;margin:8px 0 0;font-style:italic;}
+  #more{margin-top:10px;}
+  #more .ghost{width:100%;flex:none;padding:10px 6px;}
   input[type=file]{display:none;}
 </style>
 </head>
@@ -126,6 +151,7 @@
   <div class="tools">
     <button class="ghost" id="csvBtn">CSV</button>
     <button class="ghost" id="backupBtn">Backup</button>
+    <button class="ghost" id="printBtn">Print</button>
     <button class="ghost" id="restoreBtn">Restore</button>
     <input type="file" id="restoreFile" accept="application/json,.json">
   </div>
@@ -139,20 +165,29 @@
     </div>
   </div>
 
-  <details class="ref">
-    <summary>Categories (Hypertension Canada 2025)</summary>
-    <table>
-      <tr><td><b style="color:var(--normal)">Normal</b></td><td>under 120/80</td></tr>
-      <tr><td><b style="color:var(--elevated)">Watch</b></td><td>120–129 systolic — relevant if you are 50+ or at elevated cardiovascular risk</td></tr>
-      <tr><td><b style="color:var(--high1)">HTN</b></td><td>130/80 and up — the diagnostic threshold for hypertension</td></tr>
-      <tr><td><b style="color:var(--high2)">Treat</b></td><td>140/90 and up — treatment threshold for most adults</td></tr>
-      <tr><td><b style="color:var(--crisis)">Crisis</b></td><td>180/120 and up — seek medical care</td></tr>
-    </table>
+  <details class="ref" id="settingsBox">
+    <summary>Settings</summary>
+    <div class="setrow">
+      <label for="glSelect">Guideline used for categories</label>
+      <select id="glSelect">
+        <option value="ca">Hypertension Canada 2025 — Canada</option>
+        <option value="intl">ESH 2023 / NICE — Hong Kong, Europe, UK</option>
+      </select>
+      <p class="hint">Categories are calculated when displayed, so switching re-labels every reading, past and future. Your recorded numbers never change.</p>
+    </div>
+  </details>
+
+  <details class="ref" id="refBox">
+    <summary id="refTitle">Categories</summary>
+    <table id="refTable"></table>
     <p>A single home reading is not a diagnosis. These bands are for tracking; your doctor interprets them.</p>
   </details>
 
   <div class="log" id="log"></div>
+  <div id="more"></div>
 </div>
+
+<div id="printArea" aria-hidden="true"></div>
 
 <script>
 (function(){
@@ -160,9 +195,10 @@
 
   const DB_NAME='bpLogDB', STORE='readings', DB_VER=1;
   const META_ID=-1;          // legacy metadata key: kept so old records stay out of the log
+  const SETTINGS_ID=-2;      // guideline choice lives here, flagged meta so it never renders as a reading
   let db=null, entries=[];
-  let editingId=null;        // id of the entry whose comment is currently being edited, if any
-  let commitOpen=null;       // commits that editor; null whenever none is open
+  const PAGE=50;             // rows rendered before the "show all" control appears
+  let showAll=false;
 
   // Monotonic millisecond timestamp. Multiplying a ms epoch by a stride would
   // exceed Number.MAX_SAFE_INTEGER and silently lose precision, so instead we
@@ -193,17 +229,44 @@
   function esc(s){const e=document.createElement('div');e.textContent=s;return e.innerHTML;}
   function setMsg(t,c){const e=document.getElementById('msg');e.textContent=t||'';e.className='msg '+(c||'');}
 
-  // Hypertension Canada 2025 primary-care guideline (home BP monitoring).
-  // Diagnostic threshold for hypertension: >=130/80. Treatment threshold for
-  // most adults: >=140/90. Systolic >120 is a watch point for adults 50+ or
-  // those at elevated cardiovascular risk.
+  // Home-BP thresholds differ by region, so the bands are data, not code.
+  // Each band is [label, minSys, minDia] and is tested from the top down;
+  // a reading matching EITHER number falls into that band.
+  const GUIDELINES={
+    ca:{
+      name:'Hypertension Canada 2025',
+      bands:[
+        ['Crisis',180,120,'var(--crisis)'],
+        ['Treat',140,90,'var(--high2)'],
+        ['HTN',130,80,'var(--high1)'],
+        ['Watch',120,Infinity,'var(--elevated)']
+      ],
+      normal:'var(--normal)',
+      note:'Normal under 120/80 \u00b7 Watch 120\u2013129 systolic \u00b7 HTN 130/80 and above (diagnostic threshold) \u00b7 Treat 140/90 and above \u00b7 Crisis 180/120 and above.'
+    },
+    intl:{
+      name:'ESH 2023 / NICE',
+      bands:[
+        ['Crisis',180,120,'var(--crisis)'],
+        ['Stage 2',150,95,'var(--high2)'],
+        ['Stage 1',135,85,'var(--high1)'],
+        ['High-normal',130,80,'var(--elevated)']
+      ],
+      normal:'var(--normal)',
+      note:'Home-measurement thresholds: Normal under 130/80 \u00b7 High-normal 130\u2013134/80\u201384 \u00b7 Stage 1 hypertension 135/85 and above (equivalent to an office reading of 140/90) \u00b7 Stage 2 150/95 and above \u00b7 Crisis 180/120 and above.'
+    }
+  };
+  let guideline='ca';
+
+  function gl(){ return GUIDELINES[guideline]||GUIDELINES.ca; }
+
   function classify(s,d){
     if(!Number.isFinite(s)||!Number.isFinite(d)) return {l:'Invalid',c:'var(--muted)'};
-    if(s>=180||d>=120) return {l:'Crisis',c:'var(--crisis)'};
-    if(s>=140||d>=90)  return {l:'Treat',c:'var(--high2)'};
-    if(s>=130||d>=80)  return {l:'HTN',c:'var(--high1)'};
-    if(s>=120)         return {l:'Watch',c:'var(--elevated)'};
-    return {l:'Normal',c:'var(--normal)'};
+    const g=gl();
+    for(const [label,minS,minD,colour] of g.bands){
+      if(s>=minS||d>=minD) return {l:label,c:colour};
+    }
+    return {l:'Normal',c:g.normal};
   }
 
   // Returns a clean record, or null if the input can't be trusted as a reading.
@@ -215,7 +278,7 @@
     if(!Number.isFinite(sys)||!Number.isFinite(dia)) return null;
     if(sys<40||sys>260||dia<20||dia>200) return null;
     let id=Number.isFinite(Number(en.id))?Math.trunc(Number(en.id)):newId();
-    if(id===META_ID) id=newId();           // never let a reading occupy the meta key
+    if(id===META_ID||id===SETTINGS_ID) id=newId();   // never let a reading occupy a reserved key
     let pulse=null;
     if(en.pulse!=null){
       const p=Math.trunc(Number(en.pulse));
@@ -299,7 +362,7 @@
 
   function renderChart(){
     const box=document.getElementById('chartbox');
-    const data=sortEntries(entries).slice(0,30).reverse();
+    const data=entries.slice(0,30).reverse();   // entries is kept sorted newest-first
     if(data.length<2){ box.style.display='none'; return; }
     box.style.display='block';
 
@@ -338,92 +401,38 @@
     document.getElementById('avgDia').textContent = avg('dia');
     document.getElementById('latest').textContent = entries.length? entries[0].sys+'/'+entries[0].dia : '—';
 
-    ['csvBtn','backupBtn'].forEach(id=>{ document.getElementById(id).disabled = entries.length===0; });
+    ['csvBtn','backupBtn','printBtn'].forEach(id=>{ document.getElementById(id).disabled = entries.length===0; });
 
     const log=document.getElementById('log');
-    commitOpen=null;                    // re-set by mountEditor if an editor survives this render
     if(!entries.length){
       log.innerHTML='<div class="empty">No readings yet.</div>';
+      document.getElementById('more').innerHTML='';
     }else{
-      // Rebuilding the list discards the open editor, so carry any half-typed
-      // text across the render instead of resetting it to the stored note.
-      const live=editingId!=null?log.querySelector(`[data-noteinput="${editingId}"]`):null;
-      const draft=live?live.value:null;
-
-      log.innerHTML=entries.map(en=>{
+      // Rebuilding the log dominates render cost, so only the most recent slice
+      // is put in the DOM. Exports and the printed report always use every entry.
+      const shown=showAll?entries:entries.slice(0,PAGE);
+      const hidden=entries.length-shown.length;
+      document.getElementById('more').innerHTML = hidden>0
+        ? '<button class="ghost" id="moreBtn">Show all '+entries.length+' readings</button>'
+        : (showAll&&entries.length>PAGE ? '<button class="ghost" id="lessBtn">Show recent '+PAGE+' only</button>' : '');
+      log.innerHTML=shown.map(en=>{
         const c=classify(en.sys,en.dia);
-        const editing=en.id===editingId;
-        return `<div class="entry${editing?' editing':''}">
+        return `<div class="entry">
           <div class="bar" style="background:${c.c}"></div>
           <div>
             <div class="reading">${en.sys}/${en.dia}${en.pulse!=null?`<span class="pulse">${en.pulse} bpm</span>`:''}</div>
             <div class="date">${esc(en.date)}</div>
-            ${!editing&&en.note?`<div class="note">${esc(en.note)}</div>`:''}
+            ${en.note?`<div class="note">${esc(en.note)}</div>`:''}
           </div>
           <span class="tag" style="color:${c.c};border:1px solid ${c.c}">${c.l}</span>
-          <button class="edit" data-edit="${en.id}" aria-label="Edit comment">&#9998;</button>
           <button class="del" data-del="${en.id}" aria-label="Delete">&times;</button>
-          ${editing?`<div class="note-edit"><input type="text" class="noteInput" data-noteinput="${en.id}" maxlength="200" placeholder="Add a comment"></div>`:''}
         </div>`;
       }).join('');
-
-      if(editingId!=null) mountEditor(log,editingId,draft);
+      const mb=document.getElementById('moreBtn'), lb=document.getElementById('lessBtn');
+      if(mb) mb.addEventListener('click',()=>{ showAll=true; render(); });
+      if(lb) lb.addEventListener('click',()=>{ showAll=false; render(); });
     }
     renderChart();
-  }
-
-  // Wires up the one open comment editor. The id is captured per call so a
-  // pending save always targets the row it was opened on, even if the user has
-  // since started editing a different row.
-  function mountEditor(log,id,draft){
-    const inp=log.querySelector(`[data-noteinput="${id}"]`);
-    if(!inp) return;
-    const en=entries.find(x=>x.id===id);
-    inp.value=draft!=null?draft:(en&&en.note?en.note:'');
-    inp.focus();
-    inp.setSelectionRange(inp.value.length,inp.value.length);
-    // Enter and blur are two routes to the same commit, and the trailing blur
-    // from tearing the editor down would otherwise run it a second time.
-    // Enter commits directly rather than via blur(): blur does not fire reliably
-    // when the window is unfocused, which would silently drop the edit.
-    let settled=false;
-    const commit=()=>{ if(!settled){ settled=true; saveNote(id,inp.value); } };
-    commitOpen=commit;
-    inp.addEventListener('blur',commit);
-    inp.addEventListener('keydown',ev=>{
-      if(ev.key==='Enter'){ ev.preventDefault(); commit(); }
-      else if(ev.key==='Escape'){ ev.preventDefault(); settled=true; closeEditor(id); }
-    });
-  }
-
-  // Switching rows saves the row being left. Tearing an editor out of the DOM
-  // fires no blur, so relying on blur alone would silently drop that edit.
-  function startEdit(id){
-    if(editingId!=null&&editingId!==id&&commitOpen) commitOpen();
-    editingId=id;
-    render();
-  }
-  // Only the row that owns the editor may close it -- a save resolving late must
-  // not tear down an editor the user has already opened somewhere else.
-  function closeEditor(id){ if(editingId===id){ editingId=null; render(); } }
-
-  async function saveNote(id,value){
-    const idx=entries.findIndex(x=>x.id===id);
-    if(idx===-1){ closeEditor(id); return; }
-    const note=value.trim().slice(0,200)||null;
-    if(note===entries[idx].note){ closeEditor(id); return; }   // nothing changed: skip the write
-    const rec={...entries[idx],note};
-    try{
-      await dbPut(rec);
-    }catch(e){
-      setMsg('Save failed: '+(e.message||e)+' — the comment was not changed.','err');
-      closeEditor(id);
-      return;
-    }
-    entries[idx]=rec;
-    if(editingId===id) editingId=null;
-    render();                                   // always: the row's note text changed
-    setMsg(note?'Comment updated.':'Comment cleared.','ok');
   }
 
   // ---------- actions ----------
@@ -505,6 +514,137 @@
     setMsg('CSV downloaded.','ok');
   }
 
+  // ---------- print report ----------
+  // Home-BP guidelines assess a SERIES average rather than single readings, so
+  // the report leads with averages over clinically useful windows and shows the
+  // full log underneath as supporting detail.
+  function windowAvg(days){
+    let pool=entries;
+    if(days){
+      const cut=Date.now()-days*86400000;
+      pool=entries.filter(e=>{
+        const t=Date.parse(String(e.date).replace(' ','T'));
+        return Number.isFinite(t)&&t>=cut;
+      });
+    }
+    if(!pool.length) return null;
+    const m=k=>Math.round(pool.reduce((a,b)=>a+b[k],0)/pool.length);
+    const withPulse=pool.filter(e=>Number.isFinite(e.pulse));
+    return {
+      n:pool.length,
+      sys:m('sys'),
+      dia:m('dia'),
+      pulse:withPulse.length?Math.round(withPulse.reduce((a,b)=>a+b.pulse,0)/withPulse.length):null
+    };
+  }
+
+  function avgRow(label,a){
+    if(!a) return '<tr><td class="k">'+label+'</td><td>No readings in this period</td></tr>';
+    const c=classify(a.sys,a.dia);
+    return '<tr><td class="k">'+label+'</td><td><b>'+a.sys+' / '+a.dia+' mmHg</b>'+
+           (a.pulse!=null?', pulse '+a.pulse+' bpm':'')+
+           ' &nbsp;&mdash;&nbsp; '+c.l+' &nbsp;('+a.n+(a.n===1?' reading':' readings')+')</td></tr>';
+  }
+
+  function buildReport(){
+    const asc=entries.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.id-b.id);
+    const first=asc.length?asc[0].date:'—';
+    const last=asc.length?asc[asc.length-1].date:'—';
+
+    // Order comes from the active guideline, lowest band first. A hard-coded list
+    // would silently drop every label belonging to the other guideline.
+    const counts={};
+    asc.forEach(e=>{ const l=classify(e.sys,e.dia).l; counts[l]=(counts[l]||0)+1; });
+    const order=['Normal'].concat(gl().bands.map(b=>b[0]).reverse());
+    const breakdown=order.filter(k=>counts[k]).map(k=>k+': '+counts[k]).join(' \u00b7 ')||'—';
+
+    const rows=asc.map(e=>{
+      const sp=String(e.date).split(' ');
+      return '<tr>'+
+        '<td>'+esc(sp[0]||'')+'</td>'+
+        '<td>'+esc(sp[1]||'')+'</td>'+
+        '<td class="n">'+e.sys+'</td>'+
+        '<td class="n">'+e.dia+'</td>'+
+        '<td class="n">'+(e.pulse!=null?e.pulse:'')+'</td>'+
+        '<td>'+classify(e.sys,e.dia).l+'</td>'+
+        '<td>'+(e.note?esc(e.note):'')+'</td>'+
+      '</tr>';
+    }).join('');
+
+    document.getElementById('printArea').innerHTML=
+      '<div class="ph">'+
+        '<h1>Home Blood Pressure Record</h1>'+
+        '<div class="sub">Self-measured readings &mdash; printed '+esc(nowStr())+'<br>Categories per '+esc(gl().name)+'</div>'+
+      '</div>'+
+
+      '<div class="idline">Name:<span></span> &nbsp;&nbsp; Date of birth:<span></span></div>'+
+
+      '<table class="sum">'+
+        '<tr><td class="k">Period covered</td><td>'+esc(first)+' to '+esc(last)+'</td></tr>'+
+        '<tr><td class="k">Total readings</td><td>'+asc.length+'</td></tr>'+
+        avgRow('Average, last 7 days',windowAvg(7))+
+        avgRow('Average, last 30 days',windowAvg(30))+
+        avgRow('Average, all readings',windowAvg(null))+
+        '<tr><td class="k">Category breakdown</td><td>'+breakdown+'</td></tr>'+
+      '</table>'+
+
+      '<h2>All readings</h2>'+
+      '<table class="rd">'+
+        '<thead><tr><th>Date</th><th>Time</th><th>Sys</th><th>Dia</th><th>Pulse</th><th>Category</th><th>Comment</th></tr></thead>'+
+        '<tbody>'+(rows||'<tr><td colspan="7">No readings recorded.</td></tr>')+'</tbody>'+
+      '</table>'+
+
+      '<div class="fn">'+
+        '<b>Categories</b> follow '+esc(gl().name)+'. '+esc(gl().note)+' '+
+        'Readings were taken by the patient at home on a personal device; the device model and measurement conditions are not recorded by this log. '+
+        'Self-measured readings are not a diagnosis and are intended to support, not replace, clinical assessment.'+
+      '</div>';
+  }
+
+  function printReport(){
+    if(!entries.length){ setMsg('Nothing to print yet.','warn'); return; }
+    buildReport();
+    setMsg('Opening print dialog\u2026','');
+    // Let the browser lay out the freshly injected report before printing.
+    setTimeout(()=>{ window.print(); setMsg('Print sheet prepared.','ok'); },60);
+  }
+
+  // ---------- guideline selection ----------
+  // Describes band i as a range, bounded above by the next band up.
+  function bandRange(g,i){
+    const [,minS,minD]=g.bands[i];
+    const above=i>0?g.bands[i-1]:null;
+    if(minD===Infinity) return above?minS+'\u2013'+(above[1]-1)+' systolic':minS+'+ systolic';
+    return above?minS+'\u2013'+(above[1]-1)+'/'+minD+'\u2013'+(above[2]-1):minS+'/'+minD+' and above';
+  }
+
+  function renderReference(){
+    const g=gl();
+    document.getElementById('refTitle').textContent='Categories \u2014 '+g.name;
+    const rows=[];
+    for(let i=g.bands.length-1;i>=0;i--){
+      const b=g.bands[i];
+      rows.push('<tr><td><b style="color:'+b[3]+'">'+b[0]+'</b></td><td>'+bandRange(g,i)+'</td></tr>');
+    }
+    const lowest=g.bands[g.bands.length-1];
+    rows.unshift('<tr><td><b style="color:'+g.normal+'">Normal</b></td><td>under '+lowest[1]+
+                 (lowest[2]===Infinity?' systolic':'/'+lowest[2])+'</td></tr>');
+    document.getElementById('refTable').innerHTML=rows.join('');
+  }
+
+  async function setGuideline(id,persist){
+    if(!GUIDELINES[id]) return;
+    guideline=id;
+    const sel=document.getElementById('glSelect');
+    if(sel&&sel.value!==id) sel.value=id;
+    renderReference();
+    render();                       // categories are derived at display time, so everything re-labels
+    if(persist&&db){
+      try{ await dbPut({id:SETTINGS_ID,meta:true,guideline:id}); }
+      catch(e){ setMsg('Could not save the guideline choice: '+(e.message||e),'warn'); }
+    }
+  }
+
   function backup(){
     if(!entries.length) return;
     download(JSON.stringify(entries,null,2),'application/json;charset=utf-8;','bp-backup-'+todayStr()+'.json');
@@ -558,17 +698,16 @@
   async function init(){
     watchClock();
 
-    document.getElementById('addBtn').addEventListener('click',onAdd);
-    // Delegated once on the container: render() replaces the list wholesale, so
-    // per-row listeners would have to be rebuilt on every single render.
+    // One delegated listener for the whole log: re-rendering no longer has to
+    // re-bind a handler per row, which was the main cost with a long history.
     document.getElementById('log').addEventListener('click',ev=>{
-      const del=ev.target.closest('[data-del]');
-      if(del){ removeEntry(Number(del.getAttribute('data-del'))); return; }
-      const ed=ev.target.closest('[data-edit]');
-      if(ed) startEdit(Number(ed.getAttribute('data-edit')));
+      const btn=ev.target.closest('[data-del]');
+      if(btn) removeEntry(parseInt(btn.getAttribute('data-del'),10));
     });
+    document.getElementById('addBtn').addEventListener('click',onAdd);
     document.getElementById('csvBtn').addEventListener('click',exportCsv);
     document.getElementById('backupBtn').addEventListener('click',backup);
+    document.getElementById('printBtn').addEventListener('click',printReport);
     document.getElementById('restoreBtn').addEventListener('click',()=>document.getElementById('restoreFile').click());
     document.getElementById('restoreFile').addEventListener('change',restore);
     ['fSys','fDia','fPulse','fNote'].forEach(id=>{
@@ -579,11 +718,17 @@
       db=await openDB();
       const all=await dbAll();
       seedIds(all);
+      const cfg=all.find(r=>r&&r.id===SETTINGS_ID);
+      if(cfg&&GUIDELINES[cfg.guideline]) guideline=cfg.guideline;
       entries=sortEntries(all.filter(r=>r&&r.meta!==true).map(normalize).filter(Boolean));
     }catch(e){
       showBanner('Local database unavailable ('+(e.message||e)+'). Entries cannot be saved on this device — try a normal (non-private) browser window.');
       document.getElementById('addBtn').disabled=true;
     }
+    const sel=document.getElementById('glSelect');
+    sel.value=guideline;
+    sel.addEventListener('change',()=>setGuideline(sel.value,true));
+    renderReference();
     render();
 
     if(navigator.storage&&navigator.storage.persist){

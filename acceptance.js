@@ -1,12 +1,11 @@
 // Acceptance tests: load the REAL index.html into jsdom with a real
 // (in-memory) IndexedDB and drive it the way a user would.
 const fs = require('fs');
-const path = require('path');
 const { JSDOM, VirtualConsole } = require('jsdom');
 const FDBFactory = require('fake-indexeddb/lib/FDBFactory');
 const FDBKeyRange = require('fake-indexeddb/lib/FDBKeyRange');
 
-const HTML = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+const HTML = fs.readFileSync('/home/claude/bp-pwa/index.html', 'utf8');
 
 let passed = 0, failed = 0;
 const failures = [];
@@ -165,7 +164,7 @@ async function readBlob(blob) {
     dom.window.close();
   }
 
-  console.log('\n=== AT-5  Hypertension Canada 2025 categories ===');
+  console.log('\n=== AT-5  Default guideline (Hypertension Canada 2025) categories ===');
   {
     const dom = await boot();
     const bands = [
@@ -333,7 +332,8 @@ async function readBlob(blob) {
     const dom = await boot();
     check('AT-12.1 Email button gone', dom.window.document.getElementById('shareBtn') === null);
     check('AT-12.2 reminder banner gone', dom.window.document.getElementById('reminder') === null);
-    check('AT-12.3 exactly three tool buttons', dom.window.document.querySelectorAll('.tools .ghost').length === 3);
+    check('AT-12.3 four tool buttons (CSV, Backup, Print, Restore)', dom.window.document.querySelectorAll('.tools .ghost').length === 4);
+    check('AT-12.7 settings block present but collapsed', $(dom, '#settingsBox') !== null && !$(dom, '#settingsBox').open);
     const src = HTML;
     check('AT-12.4 no orphaned shareBackup code', !/shareBackup/.test(src));
     check('AT-12.5 no orphaned updateReminder code', !/updateReminder/.test(src));
@@ -465,141 +465,259 @@ async function readBlob(blob) {
     dom3.window.close();
   }
 
-  console.log('\n=== AT-18  Edit the comment on a posted entry ===');
+  console.log('\n=== AT-18  Print report for the doctor ===');
   {
-    // Opens the editor on the row matching `match`, types `text`, then commits
-    // with `key`. render() replaces the row on open, so the input is re-queried.
-    async function editComment(dom, match, text, key = 'Enter') {
-      const row = logRows(dom).find(r => r.textContent.includes(match));
-      row.querySelector('.edit').click();
-      await sleep(20);
-      const inp = $(dom, '.noteInput');
-      if (!inp) return null;
-      inp.value = text;
-      inp.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
-      await sleep(80);
-      return inp;
-    }
-    const noteOf = (dom, match) => {
-      const row = logRows(dom).find(r => r.textContent.includes(match));
-      const n = row && row.querySelector('.note');
-      return n ? n.textContent : null;
+    const dom = await boot();
+    check('AT-18.1 Print disabled when empty', $(dom, '#printBtn').disabled === true);
+    check('AT-18.2 print area empty before use', $(dom, '#printArea').innerHTML === '');
+
+    let printCalled = 0;
+    dom.window.print = () => { printCalled++; };
+
+    const now = new Date();
+    const stamp = off => {
+      const d = new Date(now.getTime() - off * 86400000);
+      const p = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} 08:00`;
     };
-
-    const factory = new FDBFactory();
-    const dom = await boot({ keepFactory: factory });
-    await addReading(dom, 124, 79, 70, 'original');
-    await addReading(dom, 118, 76);
-
-    check('AT-18.1 every row has an edit button',
-      logRows(dom).every(r => r.querySelector('.edit') !== null));
-    check('AT-18.2 edit button is labelled for screen readers',
-      logRows(dom)[0].querySelector('.edit').getAttribute('aria-label') === 'Edit comment');
-
-    // Open the editor and inspect it before committing.
-    logRows(dom).find(r => r.textContent.includes('124/79')).querySelector('.edit').click();
-    await sleep(20);
-    check('AT-18.3 editor opens as a text input', $(dom, '.noteInput') !== null);
-    check('AT-18.4 editor is prefilled with the existing comment', $(dom, '.noteInput').value === 'original');
-    check('AT-18.5 editor is focused', dom.window.document.activeElement === $(dom, '.noteInput'));
-    check('AT-18.6 category tag stays visible while editing',
-      logRows(dom).find(r => r.textContent.includes('124/79')).querySelector('.tag').textContent === 'Watch');
-    check('AT-18.7 input is capped at 200 chars', $(dom, '.noteInput').getAttribute('maxlength') === '200');
-    // Escape must discard, not save.
-    $(dom, '.noteInput').dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-    await sleep(60);
-    check('AT-18.8 Escape closes the editor', $(dom, '.noteInput') === null);
-    check('AT-18.9 Escape discards the edit', noteOf(dom, '124/79') === 'original');
-
-    await editComment(dom, '124/79', 'edited via Enter');
-    check('AT-18.10 Enter commits the new comment', noteOf(dom, '124/79') === 'edited via Enter', String(noteOf(dom, '124/79')));
-    check('AT-18.11 confirmation shown', msgText(dom) === 'Comment updated.', msgText(dom));
-    check('AT-18.12 editor closed after commit', $(dom, '.noteInput') === null);
-
-    // A row that never had a comment must still be able to gain one.
-    check('AT-18.13 second row starts with no comment', noteOf(dom, '118/76') === null);
-    await editComment(dom, '118/76', 'added later');
-    check('AT-18.14 comment can be added to a row that had none', noteOf(dom, '118/76') === 'added later');
-
-    // Clearing back to empty must drop the note, not store "".
-    await editComment(dom, '118/76', '   ');
-    check('AT-18.15 blanking the comment removes it', noteOf(dom, '118/76') === null);
-    check('AT-18.16 clearing reports its own message', msgText(dom) === 'Comment cleared.', msgText(dom));
-
-    // Editing must not disturb the reading itself.
-    check('AT-18.17 reading values untouched by an edit',
-      logRows(dom).some(r => r.querySelector('.reading').textContent.includes('124/79')));
-    check('AT-18.18 pulse untouched by an edit', logRows(dom).some(r => r.textContent.includes('70 bpm')));
-    check('AT-18.19 entry count unchanged by edits', logRows(dom).length === 2);
-
-    // Markup typed into the editor must render as text, like the add form.
-    await editComment(dom, '124/79', '<img src=x onerror=alert(1)>');
-    const edited = logRows(dom).find(r => r.textContent.includes('124/79'));
-    check('AT-18.20 edited comment cannot inject an element', edited.querySelector('.note img') === null);
-    check('AT-18.21 edited markup shown as literal text', edited.querySelector('.note').textContent.includes('<img'));
-
-    // Over-long input bypassing maxlength (paste, scripted) is still capped.
-    await editComment(dom, '124/79', 'z'.repeat(5000));
-    check('AT-18.22 over-long comment capped at 200', noteOf(dom, '124/79').length === 200,
-      String(noteOf(dom, '124/79').length));
     dom.window.close();
 
-    const dom2 = await boot({ keepFactory: factory });
-    check('AT-18.23 edited comment survives restart', noteOf(dom2, '124/79').length === 200);
-    check('AT-18.24 cleared comment stays cleared after restart', noteOf(dom2, '118/76') === null);
+    // Seed a spread across the 7 / 30 / all windows.
+    const dom2 = await boot({
+      seed: [
+        { id: 1, date: stamp(60), sys: 150, dia: 95, pulse: 80 },
+        { id: 2, date: stamp(20), sys: 138, dia: 88, pulse: 76 },
+        { id: 3, date: stamp(3),  sys: 124, dia: 79, pulse: 70, note: 'after coffee' },
+        { id: 4, date: stamp(1),  sys: 126, dia: 81, pulse: 72 },
+      ]
+    });
+    dom2.window.print = () => { printCalled++; };
+    check('AT-18.3 Print enabled with data', $(dom2, '#printBtn').disabled === false);
+
+    $(dom2, '#printBtn').click();
+    await sleep(140);
+    const html = $(dom2, '#printArea').innerHTML;
+
+    check('AT-18.4 window.print() invoked', printCalled === 1, 'calls: ' + printCalled);
+    check('AT-18.5 report has a title', /Home Blood Pressure Record/.test(html));
+    check('AT-18.6 name and DOB fields for the clinic', /Name:/.test(html) && /Date of birth:/.test(html));
+    check('AT-18.7 7-day average present', /Average, last 7 days/.test(html));
+    check('AT-18.8 30-day average present', /Average, last 30 days/.test(html));
+    check('AT-18.9 all-readings average present', /Average, all readings/.test(html));
+    check('AT-18.10 7-day window excludes the 60-day-old reading', !/7 days<\/td><td><b>1[35]/.test(html));
+    check('AT-18.11 all four readings tabulated', (html.match(/<tr>/g) || []).length >= 4);
+    check('AT-18.12 comment carried into report', /after coffee/.test(html));
+    check('AT-18.13 category breakdown present', /Category breakdown/.test(html));
+    check('AT-18.14 guideline attribution present', /Hypertension Canada/.test(html));
+    check('AT-18.15 states readings are self-measured', /not a diagnosis/.test(html));
+    check('AT-18.16 no NaN in the report', !/NaN/.test(html));
+    check('AT-18.17 period covered stated', /Period covered/.test(html));
+
+    // The report must not leak markup from a comment.
     dom2.window.close();
+    const dom3 = await boot();
+    dom3.window.print = () => {};
+    await addReading(dom3, 120, 80, 70, '<b>bold</b>');
+    $(dom3, '#printBtn').click();
+    await sleep(140);
+    const h3 = $(dom3, '#printArea').innerHTML;
+    check('AT-18.18 comment markup escaped in report', /&lt;b&gt;bold/.test(h3), h3.slice(0, 60));
+    check('AT-18.19 screen UI still intact after printing', $(dom3, '.wrap') !== null);
+    dom3.window.close();
   }
 
-  console.log('\n=== AT-19  Delete still works alongside edit ===');
+  console.log('\n=== AT-19  Regional guideline selection ===');
   {
-    const dom = await boot();
-    await addReading(dom, 120, 80, '', 'keep');
-    await addReading(dom, 130, 85, '', 'drop');
-    logRows(dom)[0].querySelector('.del').click();
-    await sleep(60);
-    check('AT-19.1 delete removes the row', logRows(dom).length === 1);
-    check('AT-19.2 the right row survived', logRows(dom)[0].textContent.includes('120/80'));
-    // The surviving row's editor must still be wired after the re-render.
-    logRows(dom)[0].querySelector('.edit').click();
-    await sleep(20);
-    check('AT-19.3 editor still opens after a delete re-render', $(dom, '.noteInput') !== null);
+    const factory = new FDBFactory();
+    const seed = [
+      { id: 1, date: '2026-09-01 08:00', sys: 118, dia: 75 },
+      { id: 2, date: '2026-09-02 08:00', sys: 124, dia: 79 },
+      { id: 3, date: '2026-09-03 08:00', sys: 132, dia: 82 },
+      { id: 4, date: '2026-09-04 08:00', sys: 137, dia: 86 },
+      { id: 5, date: '2026-09-05 08:00', sys: 142, dia: 91 },
+      { id: 6, date: '2026-09-06 08:00', sys: 152, dia: 96 },
+    ];
+    const dom = await boot({ seed, keepFactory: factory });
+    const tags = () => logRows(dom).map(r => r.querySelector('.tag').textContent).reverse();
+
+    check('AT-19.1 defaults to Canada', $(dom, '#glSelect').value === 'ca');
+    const ca = tags();
+    check('AT-19.2 CA: 124/79 is Watch', ca[1] === 'Watch', ca[1]);
+    check('AT-19.3 CA: 132/82 is HTN', ca[2] === 'HTN', ca[2]);
+    check('AT-19.4 CA: 142/91 is Treat', ca[4] === 'Treat', ca[4]);
+
+    const sel = $(dom, '#glSelect');
+    sel.value = 'intl';
+    sel.dispatchEvent(new dom.window.Event('change'));
+    await sleep(120);
+    const intl = tags();
+    check('AT-19.5 INTL: 124/79 drops to Normal', intl[1] === 'Normal', intl[1]);
+    check('AT-19.6 INTL: 132/82 is High-normal', intl[2] === 'High-normal', intl[2]);
+    check('AT-19.7 INTL: 137/86 is Stage 1', intl[3] === 'Stage 1', intl[3]);
+    check('AT-19.8 INTL: 152/96 is Stage 2', intl[5] === 'Stage 2', intl[5]);
+    check('AT-19.9 118/75 is Normal under both', ca[0] === 'Normal' && intl[0] === 'Normal');
+    check('AT-19.10 reference table retitled', /ESH 2023/.test($(dom, '#refTitle').textContent), $(dom, '#refTitle').textContent);
+    check('AT-19.11 reference rows regenerated', /135/.test($(dom, '#refTable').textContent));
+
+    // Switching must not rewrite the stored numbers.
+    const stored = await new Promise((res, rej) => {
+      const r = factory.open('bpLogDB', 1);
+      r.onsuccess = e => {
+        const db = e.target.result;
+        const g = db.transaction('readings', 'readonly').objectStore('readings').getAll();
+        g.onsuccess = () => { db.close(); res(g.result); };
+        g.onerror = () => rej(g.error);
+      };
+    });
+    const readings = stored.filter(r => r.meta !== true);
+    check('AT-19.12 readings unchanged by switching', readings.length === 6 &&
+      readings.every(r => !('category' in r)));
+    check('AT-19.13 choice saved to a meta record',
+      stored.some(r => r.id === -2 && r.meta === true && r.guideline === 'intl'));
     dom.window.close();
+
+    // Choice survives a restart.
+    const dom2 = await boot({ keepFactory: factory });
+    check('AT-19.14 selection persists across restart', $(dom2, '#glSelect').value === 'intl');
+    check('AT-19.15 labels persist across restart',
+      logRows(dom2).map(r => r.querySelector('.tag').textContent).reverse()[1] === 'Normal');
+    check('AT-19.16 settings record never renders as a reading', logRows(dom2).length === 6);
+
+    // Report and CSV must follow the active guideline.
+    dom2.window.print = () => {};
+    $(dom2, '#printBtn').click();
+    await sleep(140);
+    const rep = $(dom2, '#printArea').innerHTML;
+    check('AT-19.17 report cites the active guideline', /ESH 2023/.test(rep) && !/Hypertension Canada/.test(rep));
+    check('AT-19.18 report footer lists intl thresholds', /135\/85 and above/.test(rep) || /Stage 1/.test(rep));
+
+    $(dom2, '#csvBtn').click();
+    await sleep(40);
+    const csv = await readBlob(dom2.window.__downloads.pop().blob);
+    check('AT-19.19 CSV categories follow the active guideline', /Stage 1/.test(csv) && !/,HTN,/.test(csv));
+    dom2.window.close();
+
+    // A backup taken under one guideline restores cleanly under the other.
+    const dom3 = await boot();
+    check('AT-19.20 fresh install falls back to Canada', $(dom3, '#glSelect').value === 'ca');
+    dom3.window.close();
   }
 
-  console.log('\n=== AT-20  Leaving an open editor must not lose the edit ===');
+  console.log('\n=== AT-20  Reserved keys ===');
   {
     const dom = await boot();
-    await addReading(dom, 124, 79, 70, 'first');
-    await addReading(dom, 132, 84, 68, 'second');
-    const noteOf = match => {
-      const row = logRows(dom).find(r => r.textContent.includes(match));
-      const n = row && row.querySelector('.note');
-      return n ? n.textContent : null;
+    const win = dom.window;
+    win.FileReader = class {
+      readAsText() {
+        setTimeout(() => this.onload({ target: { result: JSON.stringify([
+          { id: -2, date: '2026-01-01 00:00', sys: 121, dia: 81 },
+        ]) } }), 0);
+      }
     };
-
-    // Open row A, type, then jump straight to row B. Pulling the editor out of
-    // the DOM fires no blur, so the switch itself has to commit row A.
-    logRows(dom).find(r => r.textContent.includes('124/79')).querySelector('.edit').click();
-    await sleep(20);
-    $(dom, '.noteInput').value = 'A committed on switch';
-    logRows(dom).find(r => r.textContent.includes('132/84')).querySelector('.edit').click();
-    await sleep(100);
-    check('AT-20.1 the row being left is saved', noteOf('124/79') === 'A committed on switch', String(noteOf('124/79')));
-    check('AT-20.2 exactly one editor open', dom.window.document.querySelectorAll('.noteInput').length === 1,
-      String(dom.window.document.querySelectorAll('.noteInput').length));
-    check('AT-20.3 the new editor holds its own comment', $(dom, '.noteInput').value === 'second', $(dom, '.noteInput').value);
-    check('AT-20.4 the other row is untouched', noteOf('132/84') === null);
-
-    // A render triggered by unrelated work must keep the half-typed draft.
-    $(dom, '.noteInput').value = 'B still being typed';
-    await addReading(dom, 110, 70);
-    check('AT-20.5 draft survives an unrelated re-render',
-      $(dom, '.noteInput') && $(dom, '.noteInput').value === 'B still being typed',
-      $(dom, '.noteInput') ? $(dom, '.noteInput').value : 'editor gone');
-    $(dom, '.noteInput').dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-    await sleep(80);
-    check('AT-20.6 that draft still commits', noteOf('132/84') === 'B still being typed', String(noteOf('132/84')));
+    const inp = $(dom, '#restoreFile');
+    Object.defineProperty(inp, 'files', { value: [{ name: 'b.json' }], configurable: true });
+    inp.dispatchEvent(new win.Event('change'));
+    await sleep(90);
+    const row = logRows(dom).find(r => r.textContent.includes('121/81'));
+    check('AT-20.1 record claiming the settings key is re-keyed',
+      row && row.querySelector('.del').getAttribute('data-del') !== '-2',
+      row ? row.querySelector('.del').getAttribute('data-del') : 'missing');
+    check('AT-20.2 guideline selector still works after that restore',
+      $(dom, '#glSelect').value === 'ca');
     dom.window.close();
+  }
+
+  console.log('\n=== AT-21  Optimization regressions ===');
+  {
+    // The report breakdown must use the active guideline's own labels.
+    const seed = [
+      { id: 1, date: '2026-09-01 08:00', sys: 118, dia: 75 },
+      { id: 2, date: '2026-09-02 08:00', sys: 132, dia: 82 },
+      { id: 3, date: '2026-09-03 08:00', sys: 137, dia: 86 },
+      { id: 4, date: '2026-09-04 08:00', sys: 152, dia: 96 },
+    ];
+    const dom = await boot({ seed });
+    dom.window.print = () => {};
+    $(dom, '#printBtn').click();
+    await sleep(140);
+    let bd = $(dom, '#printArea').innerHTML.match(/Category breakdown<\/td><td>([^<]*)/)[1];
+    check('AT-21.1 CA breakdown counts every reading',
+      /Normal: 1/.test(bd) && /HTN: 2/.test(bd) && /Treat: 1/.test(bd), bd);
+
+    const sel = $(dom, '#glSelect');
+    sel.value = 'intl';
+    sel.dispatchEvent(new dom.window.Event('change'));
+    await sleep(100);
+    $(dom, '#printBtn').click();
+    await sleep(140);
+    bd = $(dom, '#printArea').innerHTML.match(/Category breakdown<\/td><td>([^<]*)/)[1];
+    check('AT-21.2 INTL breakdown uses intl labels, drops nothing',
+      /Normal: 1/.test(bd) && /High-normal: 1/.test(bd) && /Stage 1: 1/.test(bd) && /Stage 2: 1/.test(bd), bd);
+    const counted = (bd.match(/: (\d+)/g) || []).reduce((a, m) => a + Number(m.slice(2)), 0);
+    check('AT-21.3 breakdown totals match the reading count', counted === 4, 'counted ' + counted);
+    dom.window.close();
+
+    // Row windowing.
+    const seedMany = [];
+    for (let i = 0; i < 120; i++) {
+      seedMany.push({ id: i + 1, date: '2026-09-' + String(1 + (i % 28)).padStart(2, '0') + ' 08:00', sys: 110 + (i % 40), dia: 70 + (i % 25) });
+    }
+    const dom2 = await boot({ seed: seedMany });
+    check('AT-21.4 only 50 rows rendered by default', logRows(dom2).length === 50, 'got ' + logRows(dom2).length);
+    check('AT-21.5 count still reports the true total', $(dom2, '#count').textContent === '120 entries');
+    check('AT-21.6 "show all" control offered', $(dom2, '#moreBtn') !== null);
+
+    $(dom2, '#moreBtn').click();
+    await sleep(120);
+    check('AT-21.7 show all reveals every row', logRows(dom2).length === 120, 'got ' + logRows(dom2).length);
+    check('AT-21.8 collapse control offered', $(dom2, '#lessBtn') !== null);
+
+    // Deletion must work on a row that only exists after expanding.
+    dom2.window.document.querySelectorAll('.del')[80].click();
+    await sleep(80);
+    check('AT-21.9 delete works on a revealed row', logRows(dom2).length === 119);
+
+    $(dom2, '#lessBtn').click();
+    await sleep(100);
+    check('AT-21.10 collapse returns to 50 rows', logRows(dom2).length === 50);
+
+    // Windowing must never truncate exports or the report.
+    dom2.window.print = () => {};
+    $(dom2, '#printBtn').click();
+    await sleep(150);
+    const rep = $(dom2, '#printArea').innerHTML;
+    check('AT-21.11 report covers all entries, not the window',
+      /Total readings<\/td><td>119/.test(rep), (rep.match(/Total readings<\/td><td>(\d+)/) || [])[1]);
+
+    $(dom2, '#csvBtn').click();
+    await sleep(60);
+    const csv = await readBlob(dom2.window.__downloads.pop().blob);
+    const lines = csv.replace(/^\uFEFF/, '').trim().split('\r\n');
+    check('AT-21.12 CSV exports all entries, not the window', lines.length === 120, 'lines ' + lines.length);
+
+    $(dom2, '#backupBtn').click();
+    await sleep(60);
+    const bak = JSON.parse(await readBlob(dom2.window.__downloads.pop().blob));
+    check('AT-21.13 backup covers all entries', bak.length === 119, 'got ' + bak.length);
+    check('AT-21.14 chart still limited to 30 points',
+      ($(dom2, '#chart').innerHTML.match(/<circle/g) || []).length === 60);
+    dom2.window.close();
+
+    // Delegated deletion must survive repeated re-renders.
+    const dom3 = await boot();
+    await addReading(dom3, 120, 80);
+    await addReading(dom3, 130, 85);
+    await addReading(dom3, 140, 90);
+    const s3 = $(dom3, '#glSelect');
+    for (let i = 0; i < 4; i++) {
+      s3.value = i % 2 ? 'intl' : 'ca';
+      s3.dispatchEvent(new dom3.window.Event('change'));
+      await sleep(30);
+    }
+    logRows(dom3)[0].querySelector('.del').click();
+    await sleep(80);
+    check('AT-21.15 delete still works after repeated re-renders', logRows(dom3).length === 2);
+    dom3.window.close();
   }
 
   console.log('\n' + '='.repeat(52));
