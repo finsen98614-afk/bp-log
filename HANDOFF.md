@@ -6,8 +6,8 @@ Blood pressure tracking PWA. Local-first, offline-capable, no backend.
 - **Live:** https://finsen98614-afk.github.io/bp-log/
 - **Owner:** Finsen (GitHub `finsen98614-afk`, email `finsen98614@gmail.com`)
 - **Device:** Redmi 14 Pro, Android, Chrome. Installed as a PWA from the app drawer.
-- **Current version:** service worker cache `bp-log-v11`
-- **Tests:** 179 checks (170 app + 9 service worker) — `npm install && npm test`
+- **Current version:** service worker cache `bp-log-v12`
+- **Tests:** 193 checks (184 app + 9 service worker) — `npm install && npm test`
 
 ---
 
@@ -80,8 +80,8 @@ A reading:
 ## Key invariants — do not break these
 
 1. **Write before render.** `await dbPut(...)` succeeds before the row appears. See `onAdd()`.
-2. **`normalize()` is the gatekeeper.** Returns `null` for anything untrustworthy; every caller must `.filter(Boolean)`. NaN must never reach the DB, the stats, or the chart.
-3. **A failed read must not trigger a write.** If `openDB()` throws, `entries` is empty *and* the Add button is disabled, so an empty array can never overwrite real stored data.
+2. **`normalize()` is the gatekeeper.** Returns `null` for anything untrustworthy; every caller must `.filter(Boolean)`. NaN must never reach the DB, the stats, or the chart. `date` is validated too — both its shape and that it actually parses, since `2026-13-45 99:99` satisfies the pattern.
+3. **A failed read must not trigger a write.** If `openDB()` throws, `entries` is empty and **every control that writes** is disabled — Add *and* Restore — so an empty array can never overwrite real stored data. This originally named only Add; Restore writes as well, and left enabled it reached `dbPutMany` with `db` null.
 4. **Exports use `entries`, never the rendered window.** CSV, backup, and the printed report must cover every reading even when only 50 rows are on screen.
 5. **Ids stay safe integers.** An earlier scheme multiplied a ms epoch by a stride, exceeded `Number.MAX_SAFE_INTEGER`, lost precision, and produced collisions. `newId()` now returns a monotonic timestamp, seeded from the largest id already stored and from any restored backup.
 6. **Whole numbers only on input.** `parseInt('124.7')` silently yields `124` — a reading the user never took. Input uses `/^\d+$/`.
@@ -116,11 +116,11 @@ ESH/NICE home thresholds are deliberately the home-measurement values (135/85 co
 | Feature | Notes |
 |---|---|
 | Add reading | Auto timestamp, no manual date entry. Optional comment. Enter key submits. Guarded against double-tap. |
-| Delete | Single delegated listener on `#log`, not one per row. |
+| Delete | Single delegated listener on `#log`, not one per row. Recoverable: the deleted record is held and an Undo appears in the message line until any other message replaces it. Only the most recent deletion, which is what the single control promises. |
 | Stats | Avg systolic, avg diastolic, latest. Non-finite values filtered out. |
 | Chart | Inline SVG, last 30 readings, systolic red / diastolic green. Hidden below 2 readings. |
 | Row windowing | 50 rows rendered by default with a "Show all N" toggle. Rebuilding the log dominated render cost. |
-| CSV export | UTF-8 BOM for Excel, separate Date and Time columns, comments quoted. |
+| CSV export | UTF-8 BOM for Excel, separate Date and Time columns, comments quoted. A comment opening with `= + - @` gets a leading apostrophe — spreadsheets evaluate those as formulas and quoting does not stop them. |
 | Backup / Restore | JSON. Restore merges by id, skips invalid records and reports how many. |
 | Print report | For the doctor. Leads with 7-day / 30-day / all-readings averages, since guidelines assess a series average rather than single readings. Includes name/DOB blanks, category breakdown, full table, and guideline attribution. A4, black on white. |
 | Settings | Collapsed by default. Guideline selector only. |
@@ -137,7 +137,7 @@ npm test
 Needs Node 18+. Dependencies are declared in `package.json`; `acceptance.js`
 resolves `index.html` relative to its own location, so it runs from anywhere.
 
-Loads the real `index.html` into jsdom with an in-memory IndexedDB and drives it as a user would — it is not a reimplementation of the logic. 170 checks across 21 groups: empty state, add, persistence across restart, validation, both guidelines' bands, delete, corrupt-data resilience, CSV, backup/restore round-trip, restore hardening, DB failure, chart, XSS in comments, id integrity, sorting, print report, guideline switching, reserved keys, and windowing.
+Loads the real `index.html` into jsdom with an in-memory IndexedDB and drives it as a user would — it is not a reimplementation of the logic. 184 checks across 22 groups: empty state, add, persistence across restart, validation, both guidelines' bands, delete, corrupt-data resilience, CSV, backup/restore round-trip, restore hardening, DB failure, chart, XSS in comments, id integrity, sorting, print report, guideline switching, reserved keys, and windowing.
 
 `boot()` polyfills `Blob.prototype.text()` and `.arrayBuffer()` on top of jsdom's
 `FileReader`. jsdom's Blob implements only `slice`/`size`/`type`, so without this
@@ -150,6 +150,8 @@ so a future jsdom change breaks the run loudly instead of quietly.
 - AT-21.3 asserts the report's category breakdown sums to the reading count — a hard-coded label list was dropping readings from the printed summary while the detail table still showed them.
 - AT-15.5 asserts the newest entry is deletable after restart — a float-id bug broke exactly this.
 - AT-17.2 asserts decimals are rejected rather than truncated.
+- AT-7.5/7.6 assert bad dates are rejected on load — before this, a restored backup carrying free text or an impossible date landed in the log and skewed the averages.
+- AT-6b asserts a delete can be undone, including that the original id comes back rather than a reissued one.
 - AT-19.21 asserts Canada's Normal row bounds both numbers — it read "under 120 systolic" while `classify()` was tagging 110/85 as HTN, so the reference table contradicted the app on the same screen. AT-19.22 pins the other half: if that contradiction is ever "fixed" by changing `classify()` instead of the table, it fails.
 
 ---
