@@ -55,6 +55,32 @@ async function boot({ seed = [], breakDB = false, keepFactory = null } = {}) {
         win.IDBKeyRange = FDBKeyRange;
       }
       win.navigator.storage = undefined;
+
+      // jsdom's Blob implements only slice/size/type -- no text(), no
+      // arrayBuffer(). Without these the export assertions below inspect
+      // "[object Blob]" instead of the file, so they would pass or fail for
+      // reasons that have nothing to do with the CSV. FileReader IS
+      // implemented, so build the two accessors on top of it. readAsText
+      // strips a leading BOM per the encoding spec, matching real browsers,
+      // which is why the BOM check reads raw bytes instead.
+      // Captured now, not looked up per call: AT-20 replaces win.FileReader
+      // with a stub, and a blob read after that point must not route through it.
+      const RealFileReader = win.FileReader;
+      const viaFileReader = method => function () {
+        return new Promise((res, rej) => {
+          const fr = new RealFileReader();
+          fr.onload = () => res(fr.result);
+          fr.onerror = () => rej(fr.error);
+          fr[method](this);
+        });
+      };
+      if (typeof win.Blob.prototype.arrayBuffer !== 'function') {
+        win.Blob.prototype.arrayBuffer = viaFileReader('readAsArrayBuffer');
+      }
+      if (typeof win.Blob.prototype.text !== 'function') {
+        win.Blob.prototype.text = viaFileReader('readAsText');
+      }
+
       // Capture downloads instead of hitting the filesystem.
       win.__downloads = [];
       const origCreate = win.document.createElement.bind(win.document);
@@ -89,8 +115,14 @@ async function addReading(dom, sys, dia, pulse = '', note = '') {
 }
 
 async function readBlob(blob) {
-  if (typeof blob.text === 'function') return await blob.text();
-  return String(blob);
+  // Fail loudly. The old fallback returned String(blob) -- "[object Blob]" --
+  // which let every export assertion run against a placeholder and report a
+  // result that meant nothing. A missing accessor is a broken harness, not a
+  // test outcome.
+  if (typeof blob.text !== 'function') {
+    throw new Error('Blob.text() unavailable -- the boot() polyfill did not apply');
+  }
+  return await blob.text();
 }
 
 (async () => {
@@ -604,6 +636,35 @@ async function readBlob(blob) {
     const dom3 = await boot();
     check('AT-19.20 fresh install falls back to Canada', $(dom3, '#glSelect').value === 'ca');
     dom3.window.close();
+
+    // Shipped bug: the Normal row was derived from the lowest band alone, and
+    // Canada's lowest band ("Watch") carries no diastolic bound. The table read
+    // "under 120 systolic" while classify() tagged 110/85 as HTN -- the
+    // reference and the app contradicted each other on the same screen.
+    const dom4 = await boot();
+    const normalCells = [...$(dom4, '#refTable').querySelectorAll('tr')[0]
+      .querySelectorAll('td')].map(td => td.textContent.trim());
+    check('AT-19.21 CA Normal row bounds both numbers',
+      normalCells[0] === 'Normal' && normalCells[1] === 'under 120/80',
+      normalCells.join(' | '));
+    await addReading(dom4, 110, 85);
+    check('AT-19.22 reference row and classify() agree on 110/85',
+      logRows(dom4)[0].querySelector('.tag').textContent === 'HTN',
+      logRows(dom4)[0].querySelector('.tag').textContent);
+    dom4.window.close();
+
+    // The intl table must keep bounding both numbers too, so the fix above
+    // cannot be mistaken for a Canada-only special case.
+    const dom5 = await boot();
+    const sel5 = $(dom5, '#glSelect');
+    sel5.value = 'intl';
+    sel5.dispatchEvent(new dom5.window.Event('change'));
+    await sleep(60);
+    const intlCells = [...$(dom5, '#refTable').querySelectorAll('tr')[0]
+      .querySelectorAll('td')].map(td => td.textContent.trim());
+    check('AT-19.23 INTL Normal row unchanged at under 130/80',
+      intlCells[1] === 'under 130/80', intlCells.join(' | '));
+    dom5.window.close();
   }
 
   console.log('\n=== AT-20  Reserved keys ===');

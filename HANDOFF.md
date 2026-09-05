@@ -7,7 +7,7 @@ Blood pressure tracking PWA. Local-first, offline-capable, no backend.
 - **Owner:** Finsen (GitHub `finsen98614-afk`, email `finsen98614@gmail.com`)
 - **Device:** Redmi 14 Pro, Android, Chrome. Installed as a PWA from the app drawer.
 - **Current version:** service worker cache `bp-log-v10`
-- **Tests:** 167 acceptance checks — `npm install && npm test`
+- **Tests:** 170 acceptance checks — `npm install && npm test`
 
 ---
 
@@ -135,13 +135,20 @@ npm test
 Needs Node 18+. Dependencies are declared in `package.json`; `acceptance.js`
 resolves `index.html` relative to its own location, so it runs from anywhere.
 
-Loads the real `index.html` into jsdom with an in-memory IndexedDB and drives it as a user would — it is not a reimplementation of the logic. 167 checks across 21 groups: empty state, add, persistence across restart, validation, both guidelines' bands, delete, corrupt-data resilience, CSV, backup/restore round-trip, restore hardening, DB failure, chart, XSS in comments, id integrity, sorting, print report, guideline switching, reserved keys, and windowing.
+Loads the real `index.html` into jsdom with an in-memory IndexedDB and drives it as a user would — it is not a reimplementation of the logic. 170 checks across 21 groups: empty state, add, persistence across restart, validation, both guidelines' bands, delete, corrupt-data resilience, CSV, backup/restore round-trip, restore hardening, DB failure, chart, XSS in comments, id integrity, sorting, print report, guideline switching, reserved keys, and windowing.
+
+`boot()` polyfills `Blob.prototype.text()` and `.arrayBuffer()` on top of jsdom's
+`FileReader`. jsdom's Blob implements only `slice`/`size`/`type`, so without this
+the CSV and backup assertions inspect `"[object Blob]"` rather than the file and
+report results that mean nothing. `readBlob()` throws rather than falling back,
+so a future jsdom change breaks the run loudly instead of quietly.
 
 **Run it after every change.** Several of these tests exist because the bug they catch actually shipped:
 
 - AT-21.3 asserts the report's category breakdown sums to the reading count — a hard-coded label list was dropping readings from the printed summary while the detail table still showed them.
 - AT-15.5 asserts the newest entry is deletable after restart — a float-id bug broke exactly this.
 - AT-17.2 asserts decimals are rejected rather than truncated.
+- AT-19.21 asserts Canada's Normal row bounds both numbers — it read "under 120 systolic" while `classify()` was tagging 110/85 as HTN, so the reference table contradicted the app on the same screen. AT-19.22 pins the other half: if that contradiction is ever "fixed" by changing `classify()` instead of the table, it fails.
 
 ---
 
