@@ -208,7 +208,8 @@
   <details class="ref" id="refBox">
     <summary id="refTitle">Categories</summary>
     <table id="refTable"></table>
-    <p>A single home reading is not a diagnosis. These bands are for tracking; your doctor interprets them.</p>
+    <p id="refDagger"></p>
+    <p>A single home reading is not a diagnosis. These bands are for tracking; your doctor interprets them. Whether treatment is warranted also depends on your overall cardiovascular risk, which this log does not know.</p>
   </details>
 
   <h2 class="sect">History</h2>
@@ -261,9 +262,21 @@
   // Home-BP thresholds differ by region, so the bands are data, not code.
   // Each band is [label, minSys, minDia] and is tested from the top down;
   // a reading matching EITHER number falls into that band.
+  // `basis` states which kind of measurement the numbers were written for.
+  // Both sets are home values -- this log records nothing else -- but saying so
+  // is the point: an office threshold and a home threshold for the same
+  // condition are different numbers, and a table that doesn't say which it is
+  // invites the wrong comparison.
+  //
+  // `unofficial` lists bands the guideline body does not actually publish. They
+  // are ours, kept because a warning zone below the diagnostic line is useful,
+  // and flagged everywhere they appear so they are never mistaken for a
+  // clinical category.
   const GUIDELINES={
     ca:{
       name:'Hypertension Canada 2025',
+      basis:'home (HBPM)',
+      unofficial:['Watch'],
       bands:[
         ['Crisis',180,120,'var(--crisis)'],
         ['Treat',140,90,'var(--high2)'],
@@ -271,10 +284,12 @@
         ['Watch',120,Infinity,'var(--elevated)']
       ],
       normal:'var(--normal)',
-      note:'Normal under 120/80 \u00b7 Watch 120\u2013129 systolic \u00b7 HTN 130/80 and above (diagnostic threshold) \u00b7 Treat 140/90 and above \u00b7 Crisis 180/120 and above.'
+      note:'Home (HBPM) thresholds: Normal under 120/80 \u00b7 Watch 120\u2013129 systolic \u00b7 HTN 130/80 and above \u2014 the 2025 out-of-office diagnostic threshold, lowered from 135/85 \u00b7 Treat 140/90 and above \u00b7 Crisis 180/120 and above.'
     },
     intl:{
       name:'ESH 2023 / NICE',
+      basis:'home (HBPM)',
+      unofficial:[],
       bands:[
         ['Crisis',180,120,'var(--crisis)'],
         ['Stage 2',150,95,'var(--high2)'],
@@ -612,6 +627,15 @@
     const order=['Normal'].concat(gl().bands.map(b=>b[0]).reverse());
     const breakdown=order.filter(k=>counts[k]).map(k=>k+': '+counts[k]).join(' \u00b7 ')||'—';
 
+    // Say so on the sheet itself. A clinician reading this has no other way to
+    // tell which labels come from the guideline and which are the app's own.
+    const ours=(gl().unofficial||[]).filter(l=>gl().bands.some(b=>b[0]===l));
+    const ownBands = ours.length
+      ? esc(ours.join(', '))+(ours.length===1?' is':' are')+' not a '+esc(gl().name)+
+        ' category; '+(ours.length===1?'it is':'they are')+
+        ' an early-warning zone below the diagnostic threshold, added by this log. '
+      : '';
+
     const rows=asc.map(e=>{
       const sp=String(e.date).split(' ');
       return '<tr>'+
@@ -628,7 +652,7 @@
     document.getElementById('printArea').innerHTML=
       '<div class="ph">'+
         '<h1>Home Blood Pressure Record</h1>'+
-        '<div class="sub">Self-measured readings &mdash; printed '+esc(nowStr())+'<br>Categories per '+esc(gl().name)+'</div>'+
+        '<div class="sub">Self-measured readings &mdash; printed '+esc(nowStr())+'<br>Categories per '+esc(gl().name)+', '+esc(gl().basis)+' thresholds</div>'+
       '</div>'+
 
       '<div class="idline">Name:<span></span> &nbsp;&nbsp; Date of birth:<span></span></div>'+
@@ -649,8 +673,10 @@
       '</table>'+
 
       '<div class="fn">'+
-        '<b>Categories</b> follow '+esc(gl().name)+'. '+esc(gl().note)+' '+
+        '<b>Categories</b> follow '+esc(gl().name)+', using '+esc(gl().basis)+' thresholds. '+esc(gl().note)+' '+
+        ownBands+
         'Readings were taken by the patient at home on a personal device; the device model and measurement conditions are not recorded by this log. '+
+        'Whether treatment is indicated depends on overall cardiovascular risk as well as blood pressure, and this log holds no risk information. '+
         'Self-measured readings are not a diagnosis and are intended to support, not replace, clinical assessment.'+
       '</div>';
   }
@@ -672,13 +698,16 @@
     return above?minS+'\u2013'+(above[1]-1)+'/'+minD+'\u2013'+(above[2]-1):minS+'/'+minD+' and above';
   }
 
+  function isUnofficial(g,label){ return (g.unofficial||[]).indexOf(label)!==-1; }
+
   function renderReference(){
     const g=gl();
-    document.getElementById('refTitle').textContent='Categories \u2014 '+g.name;
+    document.getElementById('refTitle').textContent='Categories \u2014 '+g.name+', '+g.basis;
     const rows=[];
     for(let i=g.bands.length-1;i>=0;i--){
       const b=g.bands[i];
-      rows.push('<tr><td><b style="color:'+b[3]+'">'+b[0]+'</b></td><td>'+bandRange(g,i)+'</td></tr>');
+      const mark=isUnofficial(g,b[0])?'<sup>\u2020</sup>':'';
+      rows.push('<tr><td><b style="color:'+b[3]+'">'+esc(b[0])+'</b>'+mark+'</td><td>'+bandRange(g,i)+'</td></tr>');
     }
     // The lowest band caps systolic, but it may carry no diastolic bound at all
     // (Canada's "Watch" is systolic-only), so the diastolic limit has to come
@@ -690,6 +719,12 @@
     rows.unshift('<tr><td><b style="color:'+g.normal+'">Normal</b></td><td>under '+loSys+
                  (Number.isFinite(loDia)?'/'+loDia:' systolic')+'</td></tr>');
     document.getElementById('refTable').innerHTML=rows.join('');
+
+    const ours=(g.unofficial||[]).filter(l=>g.bands.some(b=>b[0]===l));
+    document.getElementById('refDagger').textContent = ours.length
+      ? '† ' + ours.join(', ') + (ours.length===1?' is':' are') +
+        ' not published by ' + g.name + '. It is an early-warning zone below the diagnostic threshold, added by this app.'
+      : '';
   }
 
   async function setGuideline(id,persist){

@@ -860,6 +860,54 @@ async function readBlob(blob) {
     dom3.window.close();
   }
 
+  console.log('\n=== AT-22  The app says what it does and does not know ===');
+  {
+    // Office and home thresholds for the same condition are different numbers.
+    // A table that doesn't say which it is invites the wrong comparison, and
+    // the printed sheet goes to a clinician who can't ask.
+    const dom = await boot();
+    check('AT-22.1 reference title states the measurement basis',
+      /home \(HBPM\)/.test($(dom, '#refTitle').textContent), $(dom, '#refTitle').textContent);
+
+    // Watch is ours, not Hypertension Canada's. It must never read as clinical.
+    const watchRow = [...dom.window.document.querySelectorAll('#refTable tr')]
+      .find(tr => /Watch/.test(tr.textContent));
+    check('AT-22.2 an app-invented band is marked in the table',
+      watchRow && watchRow.querySelector('sup') !== null,
+      watchRow ? watchRow.textContent : 'no Watch row');
+    check('AT-22.3 and explained beneath it',
+      /Watch is not published by Hypertension Canada 2025/.test($(dom, '#refDagger').textContent),
+      $(dom, '#refDagger').textContent);
+    check('AT-22.4 risk is named as something the log does not hold',
+      /overall cardiovascular risk, which this log does not know/.test($(dom, '#refBox').textContent));
+
+    // ESH/NICE publishes every band it uses, so there is nothing to disclaim.
+    const sel = $(dom, '#glSelect');
+    sel.value = 'intl';
+    sel.dispatchEvent(new dom.window.Event('change'));
+    await sleep(60);
+    check('AT-22.5 no disclaimer when every band is official',
+      $(dom, '#refDagger').textContent === '', $(dom, '#refDagger').textContent);
+    check('AT-22.6 no dagger marks either',
+      dom.window.document.querySelectorAll('#refTable sup').length === 0);
+    check('AT-22.7 basis still stated for the other guideline',
+      /home \(HBPM\)/.test($(dom, '#refTitle').textContent), $(dom, '#refTitle').textContent);
+    dom.window.close();
+
+    const dom2 = await boot();
+    await addReading(dom2, 124, 79, 70);
+    $(dom2, '#printBtn').click();
+    await sleep(140);
+    const rep = $(dom2, '#printArea').innerHTML;
+    check('AT-22.8 the printed sheet states the basis in its header',
+      /Hypertension Canada 2025, home \(HBPM\) thresholds/.test(rep));
+    check('AT-22.9 and disclaims the invented band in its footnote',
+      /Watch is not a Hypertension Canada 2025 category/.test(rep));
+    check('AT-22.10 and says treatment depends on risk it does not hold',
+      /depends on overall cardiovascular risk/.test(rep));
+    dom2.window.close();
+  }
+
   console.log('\n' + '='.repeat(52));
   console.log(`RESULT: ${passed} passed, ${failed} failed, ${passed + failed} total`);
   if (failed) { console.log('\nFailures:'); failures.forEach(f => console.log('  - ' + f)); }

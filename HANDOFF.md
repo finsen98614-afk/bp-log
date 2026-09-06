@@ -6,8 +6,8 @@ Blood pressure tracking PWA. Local-first, offline-capable, no backend.
 - **Live:** https://finsen98614-afk.github.io/bp-log/
 - **Owner:** Finsen (GitHub `finsen98614-afk`, email `finsen98614@gmail.com`)
 - **Device:** Redmi 14 Pro, Android, Chrome. Installed as a PWA from the app drawer.
-- **Current version:** service worker cache `bp-log-v16`
-- **Tests:** 193 checks (184 app + 9 service worker) — `npm install && npm test`
+- **Current version:** service worker cache `bp-log-v17`
+- **Tests:** 203 checks (194 app + 9 service worker) — `npm install && npm test`
 
 ---
 
@@ -132,7 +132,47 @@ Thresholds are data, not code — `GUIDELINES` in `index.html`. Each band is `[l
 
 ESH/NICE home thresholds are deliberately the home-measurement values (135/85 corresponds to an office reading of 140/90), not office values. Canada is default; the Hong Kong use case is `intl`.
 
-**Adding a guideline:** add an entry to `GUIDELINES` and an `<option>` to `#glSelect`. The reference table, CSV Category column, and report footer all derive from the table automatically. Nothing else needs editing — that's the point of the data-driven design.
+### Two fields that exist to stop the app overclaiming
+
+`basis` — which kind of measurement the numbers were written for. Both sets are
+home values; saying so is the point, because office and home thresholds for the
+same condition are different numbers and a table that doesn't say which it is
+invites the wrong comparison. Shown in the reference title and the printed header.
+
+`unofficial` — bands the guideline body does not publish. `Watch` (120–129
+systolic) is ours: a warning zone below the diagnostic line, worth keeping
+because a home log is for spotting drift, but marked `†` in the reference table
+and disclaimed in the printed footnote so a clinician is never handed an
+app-invented label dressed as a clinical category. `intl` has none.
+
+### Where the Canada numbers come from, and a correction
+
+The 2025 update **lowered the out-of-office diagnostic threshold from 135/85 to
+130/80**, for HBPM and daytime ABPM alike; 130/80 had previously been the 24-hour
+ABPM cutoff. So the `ca` band `HTN ≥130/80` is correct for home readings under
+the current guideline.
+
+Note the trap, because it cost a wrong conclusion once: `hypertension.ca`'s
+diagnosis pages still state HBPM 135/85, which is the **pre-2025** figure. Reading
+that page alone leads to "the app grades home readings too harshly", and it is
+wrong in the direction that makes a user complacent. The 2025 primary-care update
+is the source that describes the change.
+
+Two things in `ca` are still unresolved and should not be changed on a hunch:
+
+- **`Treat ≥140/90`** — the update says the treatment threshold "remains ≥140/90"
+  without stating office or home. With diagnosis now at out-of-office 130/80,
+  applying an office number to home readings may be inconsistent.
+- **`Crisis ≥180/120`** — `hypertension.ca` gives ≥180/110 for immediate
+  diagnosis; the 2025 summary does not mention a crisis threshold at all.
+
+Treatment thresholds are also risk-stratified in the 2025 guideline (average risk
+≥140/90, low risk ≥160/100, diabetes ≥130/80, high risk and 75+ ≥130 systolic).
+The app cannot know the user's risk category, so it does not try; the reference
+panel and the printed footnote say so instead.
+
+**Adding a guideline:** add an entry to `GUIDELINES` — including `basis` and
+`unofficial`, even if `unofficial` is empty — and an `<option>` to `#glSelect`. The reference table, CSV Category column, and report footer all derive from the table automatically. Nothing else needs editing — that's the point of the data-driven design.
 
 ---
 
