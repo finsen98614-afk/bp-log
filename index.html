@@ -60,8 +60,13 @@
   .send{width:100%;background:var(--normal);color:#08130D;padding:13px;font-weight:700;font-size:14px;letter-spacing:.04em;}
   .send:active{filter:brightness(.92);}
   .send:disabled{opacity:.45;}
-  .tools{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px;}
-  .ghost{flex:1;min-width:88px;background:none;border:1px solid var(--line);color:var(--muted);padding:9px 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;}
+  /* Grid, not wrapping flex. Four buttons at 88px minimum wrapped to 3 + 1
+     below about 400px viewport, leaving Restore stranded on its own line --
+     and phones sit right on that boundary. Two columns then four is
+     deterministic: always a full row, never an orphan. */
+  .tools{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-bottom:14px;}
+  @media (min-width:420px){ .tools{grid-template-columns:repeat(4,1fr);} }
+  .ghost{background:none;border:1px solid var(--line);color:var(--muted);padding:9px 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;}
   .ghost:active{border-color:var(--muted);color:var(--text);}
   .ghost:disabled{opacity:.4;}
 
@@ -134,7 +139,7 @@
   select:focus{outline:none;border-color:var(--accent);}
   .hint{font-size:10.5px;color:var(--muted);line-height:1.5;margin:8px 0 0;font-style:italic;}
   #more{margin-top:10px;}
-  #more .ghost{width:100%;flex:none;padding:10px 6px;}
+  #more .ghost{width:100%;padding:10px 6px;}
   input[type=file]{display:none;}
 </style>
 </head>

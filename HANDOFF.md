@@ -6,7 +6,7 @@ Blood pressure tracking PWA. Local-first, offline-capable, no backend.
 - **Live:** https://finsen98614-afk.github.io/bp-log/
 - **Owner:** Finsen (GitHub `finsen98614-afk`, email `finsen98614@gmail.com`)
 - **Device:** Redmi 14 Pro, Android, Chrome. Installed as a PWA from the app drawer.
-- **Current version:** service worker cache `bp-log-v14`
+- **Current version:** service worker cache `bp-log-v15`
 - **Tests:** 193 checks (184 app + 9 service worker) ??`npm install && npm test`
 
 ---
@@ -228,4 +228,5 @@ Nothing is committed to; these came up but weren't built.
 - Medication or symptom fields alongside the comment.
 - Date-range filter for the printed report.
 - Additional guidelines: JSH 2025 and ACC/AHA 2025 both publish home-BP thresholds and would slot into `GUIDELINES` directly.
+
 
