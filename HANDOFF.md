@@ -6,7 +6,7 @@ Blood pressure tracking PWA. Local-first, offline-capable, no backend.
 - **Live:** https://finsen98614-afk.github.io/bp-log/
 - **Owner:** Finsen (GitHub `finsen98614-afk`, email `finsen98614@gmail.com`)
 - **Device:** Redmi 14 Pro, Android, Chrome. Installed as a PWA from the app drawer.
-- **Current version:** service worker cache `bp-log-v19`
+- **Current version:** service worker cache `bp-log-v20`
 - **Tests:** 203 checks (194 app + 9 service worker) — `npm install && npm test`
 
 ---
@@ -47,17 +47,31 @@ HANDOFF.md               this file
 
 Single-file design is deliberate: no build step, no bundler, no dependencies. Editing means opening one file. Keep it that way unless there's a strong reason.
 
-**The icon** is a cuff wrapped around an upper arm, with the tube and squeeze bulb
-that make it unmistakably a sphygmomanometer rather than a strap or a battery.
-It went bar chart → aneroid gauge → cuff; the gauge was legible but read as a
-speedometer, and the bar chart said "statistics", not "blood pressure".
+**The icon** is a monitor display: a reading, a pulse, and a progress bar on a
+pale panel. It went bar chart → aneroid gauge → cuff → this, chosen by the owner
+from a reference image and rebuilt as vector so it stays editable.
 
-Its colours sit outside invariant 7 without breaking it: the cuff is `--accent`,
-and the arm is a warm tan that is depicting an arm, not grading anything. No
-severity colour appears, which is the point — an icon has no reading to grade.
+Two things about it are deliberate:
+
+*Full bleed, not a rounded tile.* The reference had rounded corners and a margin
+baked in. Those are the launcher's job — it masks to a circle or a squircle of its
+own choosing, and art that brings its own rounding ends up clipped into a smaller
+square. The blue runs to the edge instead and the panel sits inside the safe zone,
+so the mask only ever eats flat colour.
+
+*It carries text, which small icons usually shouldn't.* Checked rather than
+assumed: rendered at 48, 72 and 96 physical pixels, "118/75" survives all three
+and "mmHg" is lost at every one. It holds up because Android renders a 48dp icon
+at ~144px on a 3x screen. On a low-density device the small type would go.
+
+Its colours are its own and touch neither invariant 7 palette — nothing here
+grades a reading. Note the icon is light and `background_color` in the manifest
+is `#0E1416`, so the PWA splash puts a pale icon on a near-black field.
 
 `icon.svg` is the source of truth; the PNGs are rendered from it and committed,
-so a clone never has to build anything.
+so a clone never has to build anything. Text renders through whatever font the
+rasteriser finds — `Arial, Helvetica, sans-serif` is specified, and a machine
+without them will produce a different-looking icon.
 
 **To change it:** edit `icon.svg`, then
 
@@ -74,7 +88,7 @@ It is full bleed on purpose. The manifest declares these maskable, so the launch
 crops to a shape of its choosing — a circle, a squircle — and art with rounding
 already baked in ends up clipped into a smaller square. `npm run icons` measures
 the rendered PNG and fails if anything reaches past the safe zone, so this is
-checked rather than trusted: the cuff reaches 191px of the 205px allowed.
+checked rather than trusted: the panel reaches 190px of the 205px allowed.
 
 Changing the icon does **not** reach an installed PWA. Android copies it into the
 launcher at install time and ignores later manifest changes, so seeing a new icon
