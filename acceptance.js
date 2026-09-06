@@ -56,6 +56,14 @@ async function boot({ seed = [], breakDB = false, keepFactory = null } = {}) {
       }
       win.navigator.storage = undefined;
 
+      // jsdom's confirm() is a stub that returns undefined, which would read as
+      // "cancelled" and silently turn every delete test into a no-op. Answer
+      // yes by default and record what was asked; a test flips __confirmAnswer
+      // to exercise the cancel path.
+      win.__confirms = [];
+      win.__confirmAnswer = true;
+      win.confirm = message => { win.__confirms.push(String(message)); return win.__confirmAnswer; };
+
       // jsdom's Blob implements only slice/size/type -- no text(), no
       // arrayBuffer(). Without these the export assertions below inspect
       // "[object Blob]" instead of the file, so they would pass or fail for
@@ -228,7 +236,8 @@ async function readBlob(blob) {
     check('AT-6.2 correct row remained', logRows(dom)[0].textContent.includes('120/80'));
     check('AT-6.3 confirmation names the deleted reading',
       /^Deleted 130\/85\./.test(msgText(dom)), msgText(dom));
-    check('AT-6.4 an undo is offered', $(dom, '#undoBtn') !== null);
+    check('AT-6.4 the user was asked first, by reading',
+      /130\/85/.test(dom.window.__confirms[0] || ''), dom.window.__confirms[0]);
     dom.window.close();
 
     const dom2 = await boot({ keepFactory: factory });
@@ -236,44 +245,42 @@ async function readBlob(blob) {
     dom2.window.close();
   }
 
-  console.log('\n=== AT-6b  Undo a delete ===');
+  console.log('\n=== AT-6b  Delete asks first ===');
   {
     // A reading is a medical record with only manual backups, so a mis-tap on
-    // the row's delete must be recoverable.
+    // the row's delete must not be final. An inline Undo was tried first and
+    // was too easy to miss on a phone -- an undo nobody notices is not a
+    // safety net, so the interruption has to come before the write.
     const factory = new FDBFactory();
     const dom = await boot({ keepFactory: factory });
     await addReading(dom, 120, 80, 70, 'kept');
-    await addReading(dom, 138, 88, 66, 'oops');
-    const deletedId = logRows(dom)[0].querySelector('.del').getAttribute('data-del');
+    await addReading(dom, 138, 88, 66, 'careful');
+    dom.window.__confirmAnswer = false;
     logRows(dom)[0].querySelector('.del').click();
-    await sleep(60);
-    check('AT-6b.1 row is gone before undo', logRows(dom).length === 1);
-    // Guarded so an absent control fails the checks below instead of throwing
-    // and taking the rest of the run with it.
-    const undoBtn = $(dom, '#undoBtn');
-    if (undoBtn) { undoBtn.click(); await sleep(80); }
-    check('AT-6b.2 undo puts the row back', logRows(dom).length === 2, 'got ' + logRows(dom).length);
-    check('AT-6b.3 values and comment survive',
-      logRows(dom)[0].textContent.includes('138/88') && logRows(dom)[0].textContent.includes('oops'));
-    check('AT-6b.4 the id is preserved, not reissued',
-      logRows(dom)[0].querySelector('.del').getAttribute('data-del') === deletedId,
-      logRows(dom)[0].querySelector('.del').getAttribute('data-del') + ' vs ' + deletedId);
-    check('AT-6b.5 the undo offer is withdrawn once used', $(dom, '#undoBtn') === null);
+    await sleep(80);
+    check('AT-6b.1 cancelling leaves the row alone', logRows(dom).length === 2, 'got ' + logRows(dom).length);
+    check('AT-6b.2 the prompt names the reading and its timestamp',
+      /138\/88 from \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(dom.window.__confirms[0] || ''),
+      dom.window.__confirms[0]);
+    check('AT-6b.3 cancelling never claims a deletion',
+      !/Deleted/.test(msgText(dom)), msgText(dom));
     dom.window.close();
 
+    // Nothing was written, so a restart must still show both readings. This is
+    // the check that would catch a delete that ran before the prompt.
     const dom2 = await boot({ keepFactory: factory });
-    check('AT-6b.6 the undo reached the database, not just the screen',
+    check('AT-6b.4 a cancelled delete never reached the database',
       logRows(dom2).length === 2, 'got ' + logRows(dom2).length);
+    dom2.window.__confirmAnswer = true;
+    logRows(dom2)[0].querySelector('.del').click();
+    await sleep(80);
+    check('AT-6b.5 confirming does delete', logRows(dom2).length === 1);
     dom2.window.close();
 
-    // The offer lives in the message line; anything else that writes there
-    // retires it, so a stale Undo can never resurrect a much older deletion.
-    const dom3 = await boot();
-    await addReading(dom3, 120, 80);
-    logRows(dom3)[0].querySelector('.del').click();
-    await sleep(60);
-    await addReading(dom3, 125, 82);
-    check('AT-6b.7 a later action retires the offer', $(dom3, '#undoBtn') === null);
+    const dom3 = await boot({ keepFactory: factory });
+    check('AT-6b.6 the confirmed delete persisted', logRows(dom3).length === 1);
+    check('AT-6b.7 the surviving row is the right one',
+      logRows(dom3)[0].textContent.includes('120/80'));
     dom3.window.close();
   }
 

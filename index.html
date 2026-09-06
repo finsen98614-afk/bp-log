@@ -51,10 +51,6 @@
   .msg.err{color:var(--high2);}
   .msg.ok{color:var(--normal);}
   .msg.warn{color:var(--elevated);}
-  /* Undo lives inside the existing message line rather than adding a toast:
-     one less piece of chrome, and it sits where the user is already looking. */
-  .msg .undo{background:none;border:none;border-bottom:1px solid currentColor;
-    color:inherit;font-family:var(--mono);font-size:11px;padding:0 0 1px;margin-left:2px;}
 
   .banner{font-family:var(--mono);font-size:11px;line-height:1.5;padding:10px 11px;border-radius:8px;margin-bottom:14px;display:none;}
   .banner.danger{background:rgba(193,58,58,.12);border:1px solid var(--crisis);color:#F0A7A7;}
@@ -203,7 +199,6 @@
   let db=null, entries=[];
   const PAGE=50;             // rows rendered before the "show all" control appears
   let showAll=false;
-  let undoRec=null;          // most recently deleted reading, while its Undo is still offered
 
   // Monotonic millisecond timestamp. Multiplying a ms epoch by a stride would
   // exceed Number.MAX_SAFE_INTEGER and silently lose precision, so instead we
@@ -232,14 +227,7 @@
     return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
   }
   function esc(s){const e=document.createElement('div');e.textContent=s;return e.innerHTML;}
-  // Any new message retires the pending undo: once the line has been reused to
-  // say something else, there is no longer an offer on screen to honour.
-  function setMsg(t,c){
-    undoRec=null;
-    const e=document.getElementById('msg');
-    e.textContent=t||'';
-    e.className='msg '+(c||'');
-  }
+  function setMsg(t,c){const e=document.getElementById('msg');e.textContent=t||'';e.className='msg '+(c||'');}
 
   // Home-BP thresholds differ by region, so the bands are data, not code.
   // Each band is [label, minSys, minDia] and is tested from the top down;
@@ -504,41 +492,13 @@
   }
 
   // A reading is a medical record and the only backup is manual, so a mis-tap
-  // on a row's delete must not be final. The record is held in memory and
-  // offered back until the message line is used for anything else. Only the
-  // most recent deletion is recoverable, which is what the single offer on
-  // screen promises.
-  function offerUndo(rec){
-    const e=document.getElementById('msg');
-    setMsg('','ok');                       // clears any previous undoRec first
-    e.textContent='Deleted '+rec.sys+'/'+rec.dia+'. ';
-    const b=document.createElement('button');
-    b.className='undo';
-    b.type='button';
-    b.id='undoBtn';
-    b.textContent='Undo';
-    b.addEventListener('click',undoDelete);
-    e.appendChild(b);
-    undoRec=rec;
-  }
-
-  async function undoDelete(){
-    const rec=undoRec;
-    if(!rec) return;
-    undoRec=null;
-    try{
-      await dbPut(rec);
-    }catch(e){
-      setMsg('Undo failed: '+(e.message||e)+' — the reading is still deleted.','err');
-      return;
-    }
-    entries=sortEntries([rec,...entries]);
-    render();
-    setMsg('Restored '+rec.sys+'/'+rec.dia+'.','ok');
-  }
-
+  // on a row's delete must not be final. This was first tried as an inline
+  // Undo in the message line; on a phone it was too easy to miss, and an
+  // undo you don't notice is not a safety net. The native dialog interrupts,
+  // needs no discovering, and states exactly which reading is at stake.
   async function removeEntry(id){
     const rec=entries.find(x=>x.id===id);
+    if(rec && !window.confirm('Delete '+rec.sys+'/'+rec.dia+' from '+rec.date+'?\n\nThis cannot be undone.')) return;
     try{
       await dbDel(id);
     }catch(e){
@@ -547,7 +507,7 @@
     }
     entries=entries.filter(x=>x.id!==id);
     render();
-    if(rec) offerUndo(rec); else setMsg('Deleted.','ok');
+    setMsg(rec?'Deleted '+rec.sys+'/'+rec.dia+'.':'Deleted.','ok');
   }
 
   function download(content,mime,name){

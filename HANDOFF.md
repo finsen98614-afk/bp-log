@@ -6,7 +6,7 @@ Blood pressure tracking PWA. Local-first, offline-capable, no backend.
 - **Live:** https://finsen98614-afk.github.io/bp-log/
 - **Owner:** Finsen (GitHub `finsen98614-afk`, email `finsen98614@gmail.com`)
 - **Device:** Redmi 14 Pro, Android, Chrome. Installed as a PWA from the app drawer.
-- **Current version:** service worker cache `bp-log-v12`
+- **Current version:** service worker cache `bp-log-v13`
 - **Tests:** 193 checks (184 app + 9 service worker) — `npm install && npm test`
 
 ---
@@ -116,7 +116,7 @@ ESH/NICE home thresholds are deliberately the home-measurement values (135/85 co
 | Feature | Notes |
 |---|---|
 | Add reading | Auto timestamp, no manual date entry. Optional comment. Enter key submits. Guarded against double-tap. |
-| Delete | Single delegated listener on `#log`, not one per row. Recoverable: the deleted record is held and an Undo appears in the message line until any other message replaces it. Only the most recent deletion, which is what the single control promises. |
+| Delete | Single delegated listener on `#log`, not one per row. Guarded by a native `confirm()` naming the reading and its timestamp. An inline Undo was built first and removed after device testing — it sat in the message line and was too easy to miss, and an undo nobody notices is not a safety net. Don't rebuild it; the interruption has to come before the write. |
 | Stats | Avg systolic, avg diastolic, latest. Non-finite values filtered out. |
 | Chart | Inline SVG, last 30 readings, systolic red / diastolic green. Hidden below 2 readings. |
 | Row windowing | 50 rows rendered by default with a "Show all N" toggle. Rebuilding the log dominated render cost. |
@@ -151,7 +151,7 @@ so a future jsdom change breaks the run loudly instead of quietly.
 - AT-15.5 asserts the newest entry is deletable after restart — a float-id bug broke exactly this.
 - AT-17.2 asserts decimals are rejected rather than truncated.
 - AT-7.5/7.6 assert bad dates are rejected on load — before this, a restored backup carrying free text or an impossible date landed in the log and skewed the averages.
-- AT-6b asserts a delete can be undone, including that the original id comes back rather than a reissued one.
+- AT-6b asserts a cancelled delete never reaches the database, checked after a restart rather than just on screen — the failure it guards against is a delete that runs before the prompt is answered.
 - AT-19.21 asserts Canada's Normal row bounds both numbers — it read "under 120 systolic" while `classify()` was tagging 110/85 as HTN, so the reference table contradicted the app on the same screen. AT-19.22 pins the other half: if that contradiction is ever "fixed" by changing `classify()` instead of the table, it fails.
 
 ---
