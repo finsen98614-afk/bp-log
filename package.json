@@ -6,7 +6,8 @@
   "scripts": {
     "test": "node acceptance.js && node sw.test.js",
     "test:app": "node acceptance.js",
-    "test:sw": "node sw.test.js"
+    "test:sw": "node sw.test.js",
+    "icons": "node make-icons.js"
   },
   "devDependencies": {
     "fake-indexeddb": "^6.0.0",

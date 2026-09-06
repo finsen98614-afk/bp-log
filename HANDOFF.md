@@ -6,7 +6,7 @@ Blood pressure tracking PWA. Local-first, offline-capable, no backend.
 - **Live:** https://finsen98614-afk.github.io/bp-log/
 - **Owner:** Finsen (GitHub `finsen98614-afk`, email `finsen98614@gmail.com`)
 - **Device:** Redmi 14 Pro, Android, Chrome. Installed as a PWA from the app drawer.
-- **Current version:** service worker cache `bp-log-v17`
+- **Current version:** service worker cache `bp-log-v18`
 - **Tests:** 203 checks (194 app + 9 service worker) — `npm install && npm test`
 
 ---
@@ -35,7 +35,8 @@ sw.js                    service worker: network-first shell, cache-first assets
 manifest.json            PWA manifest, relative paths so any repo name works
 icon-192.png             app icon, declared both any and maskable
 icon-512.png             same, larger
-icon.svg                 the source the two PNGs were rendered from
+icon.svg                 the source the two PNGs are rendered from
+make-icons.js            re-renders them and checks the maskable safe zone
 acceptance.js            app test suite (not deployed; keep in repo for CI/local runs)
 sw.test.js               service worker tests, run by the same `npm test`
 package.json             declares the two test dependencies and `npm test`
@@ -48,15 +49,30 @@ Single-file design is deliberate: no build step, no bundler, no dependencies. Ed
 
 **The icon** is an aneroid gauge — the sign for blood pressure — with the app's own
 severity ramp as the dial face. It replaced a bar chart, which said "statistics",
-not "blood pressure". `icon.svg` is the source; the PNGs were rendered from it once
-with `sharp` and committed. That render is not part of the build — there is no
-build — so if you change the SVG, re-render the two PNGs by whatever means and
-commit them too.
+not "blood pressure". `icon.svg` is the source of truth; the PNGs are rendered
+from it and committed, so a clone never has to build anything.
+
+**To change it:** edit `icon.svg`, then
+
+```bash
+npm i --no-save sharp     # once; deliberately not in package.json
+npm run icons             # re-renders both PNGs and checks them
+```
+
+`sharp` is kept out of `package.json` on purpose. It is a large native dependency
+with nothing to do with the tests, and `npm install` here exists to run the tests.
+`make-icons.js` prints this instruction if it is missing.
 
 It is full bleed on purpose. The manifest declares these maskable, so the launcher
-applies its own shape; art with rounding already baked in gets clipped into a
-smaller square. Everything meaningful sits within 173px of centre on the 512 grid,
-inside the 205px maskable safe zone.
+crops to a shape of its choosing — a circle, a squircle — and art with rounding
+already baked in ends up clipped into a smaller square. `npm run icons` measures
+the rendered PNG and fails if anything reaches past the safe zone, so this is
+checked rather than trusted: the gauge reaches 173px of the 205px allowed.
+
+Changing the icon does **not** reach an installed PWA. Android copies it into the
+launcher at install time and ignores later manifest changes, so seeing a new icon
+on the phone means removing the app from the drawer and reinstalling from Chrome.
+Readings live in IndexedDB and survive that, but take a Backup first anyway.
 
 ---
 
