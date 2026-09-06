@@ -83,7 +83,10 @@
   svg{display:block;width:100%;height:auto;}
 
   .log{display:flex;flex-direction:column;gap:6px;}
-  .entry{display:grid;grid-template-columns:5px 1fr auto auto;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 10px;}
+  .entry{display:grid;grid-template-columns:5px 1fr auto auto auto;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 10px;}
+  /* The row being edited is marked with the structural accent, not a severity
+     colour -- "you are editing this" is not a blood pressure grade. */
+  .entry.editing{border-color:var(--accent);}
   .bar{align-self:stretch;border-radius:3px;}
   .reading{font-family:var(--mono);font-size:18px;font-weight:700;display:flex;align-items:baseline;gap:7px;}
   .reading .pulse{font-size:11px;color:var(--muted);font-weight:500;}
@@ -92,6 +95,12 @@
   .tag{font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.05em;padding:3px 6px;border-radius:4px;white-space:nowrap;}
   .del{background:none;color:var(--muted);font-size:19px;line-height:1;padding:4px 7px;}
   .del:active{color:var(--high2);}
+  .edit{background:none;color:var(--muted);font-size:15px;line-height:1;padding:4px 5px;}
+  .edit:active{color:var(--accent);}
+  .btnrow{display:flex;gap:7px;}
+  .btnrow .send{flex:1;}
+  .btnrow .ghost{flex:0 0 auto;min-width:92px;}
+  .card.editing{border-color:var(--accent);}
   .empty{color:var(--muted);font-family:var(--mono);font-size:11.5px;text-align:center;padding:22px 0;}
   .legend{display:flex;gap:14px;justify-content:center;margin-top:4px;font-family:var(--mono);font-size:9.5px;color:var(--muted);}
   .legend span{display:flex;align-items:center;gap:5px;}
@@ -160,8 +169,11 @@
   </div>
 
   <h2 class="sect">New reading</h2>
-  <div class="card">
-    <div class="clock">Logging at <b id="clock"></b></div>
+  <div class="card" id="card">
+    <div class="fld">
+      <label for="fWhen">Date &amp; time</label>
+      <input type="datetime-local" id="fWhen">
+    </div>
     <div class="row3">
       <div><label for="fSys">Systolic</label><input type="number" inputmode="numeric" id="fSys" placeholder="120"></div>
       <div><label for="fDia">Diastolic</label><input type="number" inputmode="numeric" id="fDia" placeholder="80"></div>
@@ -171,7 +183,10 @@
       <label for="fNote">Comment (optional)</label>
       <input type="text" id="fNote" maxlength="200" lang="zh-HK" placeholder="e.g. 啱啱飲完咖啡">
     </div>
-    <button class="send" id="addBtn">+ Add Reading</button>
+    <div class="btnrow">
+      <button class="send" id="addBtn">+ Add Reading</button>
+      <button class="ghost" id="cancelBtn" hidden>Cancel</button>
+    </div>
     <div class="msg" id="msg"></div>
   </div>
 
@@ -229,6 +244,8 @@
   let db=null, entries=[];
   const PAGE=50;             // rows rendered before the "show all" control appears
   let showAll=false;
+  let editingId=null;        // id of the reading the card is currently editing, or null
+  let whenPinned=false;      // true once the user sets a time themselves; stops the clock overwriting it
 
   // Monotonic millisecond timestamp. Multiplying a ms epoch by a stride would
   // exceed Number.MAX_SAFE_INTEGER and silently lose precision, so instead we
@@ -257,6 +274,11 @@
     return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
   }
   function esc(s){const e=document.createElement('div');e.textContent=s;return e.innerHTML;}
+  // Stored dates are 'YYYY-MM-DD HH:MM'; <input type="datetime-local"> wants a
+  // 'T' in the middle. Same string either way, so no timezone maths is involved
+  // and none should be introduced -- these are wall-clock readings.
+  const toInputDT=s=>String(s).replace(' ','T');
+  const fromInputDT=v=>String(v).replace('T',' ').slice(0,16);
   function setMsg(t,c){const e=document.getElementById('msg');e.textContent=t||'';e.className='msg '+(c||'');}
 
   // Home-BP thresholds differ by region, so the bands are data, not code.
@@ -473,7 +495,7 @@
         : (showAll&&entries.length>PAGE ? '<button class="ghost" id="lessBtn">Show recent '+PAGE+' only</button>' : '');
       log.innerHTML=shown.map(en=>{
         const c=classify(en.sys,en.dia);
-        return `<div class="entry">
+        return `<div class="entry${en.id===editingId?' editing':''}">
           <div class="bar" style="background:${c.c}"></div>
           <div>
             <div class="reading">${en.sys}/${en.dia}${en.pulse!=null?`<span class="pulse">${en.pulse} bpm</span>`:''}</div>
@@ -481,6 +503,7 @@
             ${en.note?`<div class="note">${esc(en.note)}</div>`:''}
           </div>
           <span class="tag" style="color:${c.c};border:1px solid ${c.c}">${c.l}</span>
+          <button class="edit" data-edit="${en.id}" aria-label="Edit">&#9998;</button>
           <button class="del" data-del="${en.id}" aria-label="Delete">&times;</button>
         </div>`;
       }).join('');
@@ -492,9 +515,49 @@
   }
 
   // ---------- actions ----------
-  let adding=false;
-  async function onAdd(){
-    if(adding) return;            // a second tap before the write resolves would duplicate the entry
+  // Puts the card back into "add" shape. Deliberately does not touch the
+  // message line, so a caller can say what just happened.
+  function resetForm(){
+    editingId=null;
+    whenPinned=false;
+    ['fSys','fDia','fPulse','fNote'].forEach(id=>{document.getElementById(id).value='';});
+    document.getElementById('addBtn').textContent='+ Add Reading';
+    document.getElementById('cancelBtn').hidden=true;
+    document.getElementById('card').classList.remove('editing');
+    tickClock();
+  }
+
+  // Readings get logged late -- measured at 07:00, typed in at 09:00 -- and get
+  // copied in from a monitor's memory days afterwards. The report leads with
+  // 7- and 30-day averages, so a timestamp that is merely "when it was typed"
+  // quietly makes those wrong. Hence editing, and hence an editable time.
+  function startEdit(id){
+    const rec=entries.find(x=>x.id===id);
+    if(!rec) return;
+    editingId=id;
+    whenPinned=true;                 // show the reading's own time, not the clock
+    document.getElementById('fSys').value=rec.sys;
+    document.getElementById('fDia').value=rec.dia;
+    document.getElementById('fPulse').value=rec.pulse!=null?rec.pulse:'';
+    document.getElementById('fNote').value=rec.note||'';
+    document.getElementById('fWhen').value=toInputDT(rec.date);
+    document.getElementById('addBtn').textContent='Save changes';
+    document.getElementById('cancelBtn').hidden=false;
+    document.getElementById('card').classList.add('editing');
+    render();
+    setMsg('Editing the reading from '+rec.date+'.','warn');
+    document.getElementById('card').scrollIntoView({block:'start'});
+  }
+
+  function cancelEdit(){
+    resetForm();
+    render();
+    setMsg('Edit cancelled — nothing changed.','ok');
+  }
+
+  let busy=false;
+  async function onSubmit(){
+    if(busy) return;            // a second tap before the write resolves would duplicate the entry
     setMsg('');
     const sRaw=document.getElementById('fSys').value.trim();
     const dRaw=document.getElementById('fDia').value.trim();
@@ -514,25 +577,37 @@
       if(!Number.isFinite(p)||p<25||p>250){ setMsg('Pulse must be a whole number, 25–250, or blank.','err'); return; }
     }
 
-    const rec=normalize({id:newId(),date:nowStr(),sys:s,dia:d,pulse:p,note:note||null});
+    const date=fromInputDT(document.getElementById('fWhen').value);
+    if(!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(date)){ setMsg('A date and time is required.','err'); return; }
+    const t=Date.parse(date.replace(' ','T'));
+    if(!Number.isFinite(t)){ setMsg('That date and time is not a real one.','err'); return; }
+    // A reading you have not taken yet cannot exist. A day of slack absorbs a
+    // wrong device clock while still catching the typo this is really for --
+    // the wrong year, which would park the entry outside every average.
+    if(t>Date.now()+86400000){ setMsg('That is more than a day ahead — check the year.','err'); return; }
+
+    const editing=editingId!==null;
+    const rec=normalize({id:editing?editingId:newId(),date:date,sys:s,dia:d,pulse:p,note:note||null});
     if(!rec){ setMsg('Could not build a valid record from those values.','err'); return; }
 
-    adding=true;
+    busy=true;
     const btn=document.getElementById('addBtn');
     btn.disabled=true;
     try{
       await dbPut(rec);
     }catch(e){
-      setMsg('Save failed: '+(e.message||e)+' — nothing was recorded.','err');
+      setMsg((editing?'Update':'Save')+' failed: '+(e.message||e)+' — nothing was recorded.','err');
       return;
     }finally{
-      adding=false;
+      busy=false;
       btn.disabled=false;
     }
-    entries=sortEntries([rec,...entries]);
+    // Drop the old copy before re-inserting: an edit keeps the id, and editing
+    // the date changes where the row sorts.
+    entries=sortEntries([rec,...entries.filter(x=>x.id!==rec.id)]);
+    resetForm();
     render();
-    ['fSys','fDia','fPulse','fNote'].forEach(id=>{document.getElementById(id).value='';});
-    setMsg('Saved '+rec.date+'.','ok');
+    setMsg((editing?'Updated ':'Saved ')+rec.date+'.','ok');
   }
 
   // A reading is a medical record and the only backup is manual, so a mis-tap
@@ -550,6 +625,9 @@
       return;
     }
     entries=entries.filter(x=>x.id!==id);
+    // Deleting the row the card is editing would leave the form pointed at an
+    // id that no longer exists, and saving would silently resurrect it.
+    if(editingId===id) resetForm();
     render();
     setMsg(rec?'Deleted '+rec.sys+'/'+rec.dia+'.':'Deleted.','ok');
   }
@@ -777,9 +855,12 @@
   }
 
   // ---------- init ----------
+  // Keeps the time field on "now" so the common case stays one tap, but stops
+  // the moment the user sets a time themselves or starts an edit -- otherwise
+  // the clock would type over what they just entered.
   function tickClock(){
-    const el=document.getElementById('clock');
-    if(el) el.textContent=nowStr();
+    const el=document.getElementById('fWhen');
+    if(el && !whenPinned && editingId===null) el.value=toInputDT(nowStr());
   }
 
   // Re-sync when the app returns to the foreground: a backgrounded PWA has its
@@ -796,17 +877,21 @@
     // One delegated listener for the whole log: re-rendering no longer has to
     // re-bind a handler per row, which was the main cost with a long history.
     document.getElementById('log').addEventListener('click',ev=>{
-      const btn=ev.target.closest('[data-del]');
-      if(btn) removeEntry(parseInt(btn.getAttribute('data-del'),10));
+      const del=ev.target.closest('[data-del]');
+      if(del){ removeEntry(parseInt(del.getAttribute('data-del'),10)); return; }
+      const ed=ev.target.closest('[data-edit]');
+      if(ed) startEdit(parseInt(ed.getAttribute('data-edit'),10));
     });
-    document.getElementById('addBtn').addEventListener('click',onAdd);
+    document.getElementById('addBtn').addEventListener('click',onSubmit);
+    document.getElementById('cancelBtn').addEventListener('click',cancelEdit);
+    document.getElementById('fWhen').addEventListener('input',()=>{ whenPinned=true; });
     document.getElementById('csvBtn').addEventListener('click',exportCsv);
     document.getElementById('backupBtn').addEventListener('click',backup);
     document.getElementById('printBtn').addEventListener('click',printReport);
     document.getElementById('restoreBtn').addEventListener('click',()=>document.getElementById('restoreFile').click());
     document.getElementById('restoreFile').addEventListener('change',restore);
-    ['fSys','fDia','fPulse','fNote'].forEach(id=>{
-      document.getElementById(id).addEventListener('keydown',ev=>{ if(ev.key==='Enter') onAdd(); });
+    ['fSys','fDia','fPulse','fNote','fWhen'].forEach(id=>{
+      document.getElementById(id).addEventListener('keydown',ev=>{ if(ev.key==='Enter') onSubmit(); });
     });
 
     try{

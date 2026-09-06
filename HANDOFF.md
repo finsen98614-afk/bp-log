@@ -6,8 +6,8 @@ Blood pressure tracking PWA. Local-first, offline-capable, no backend.
 - **Live:** https://finsen98614-afk.github.io/bp-log/
 - **Owner:** Finsen (GitHub `finsen98614-afk`, email `finsen98614@gmail.com`)
 - **Device:** Redmi 14 Pro, Android, Chrome. Installed as a PWA from the app drawer.
-- **Current version:** service worker cache `bp-log-v21`
-- **Tests:** 203 checks (194 app + 9 service worker) — `npm install && npm test`
+- **Current version:** service worker cache `bp-log-v22`
+- **Tests:** 228 checks (219 app + 9 service worker) — `npm install && npm test`
 
 ---
 
@@ -112,7 +112,7 @@ A reading:
 ```js
 {
   id:    1757049600000,        // ms timestamp, monotonic, safe integer
-  date:  '2026-09-05 09:07',   // local time string, sorts lexicographically
+  date:  '2026-09-05 09:07',   // local wall clock, sorts lexicographically, user-editable
   sys:   124,                  // integer 40–260
   dia:   79,                   // integer 20–200
   pulse: 70,                   // integer 25–250, or null
@@ -223,8 +223,9 @@ panel and the printed footnote say so instead.
 
 | Feature | Notes |
 |---|---|
-| Add reading | Auto timestamp, no manual date entry. Optional comment. Enter key submits. Guarded against double-tap. |
-| Delete | Single delegated listener on `#log`, not one per row. Recoverable: the deleted record is held and an Undo appears in the message line until any other message replaces it. Only the most recent deletion, which is what the single control promises. |
+| Add reading | Date and time default to now and can be changed, so a reading taken earlier — or copied out of a monitor's memory days later — carries the time it was actually taken. The field stops tracking the clock the moment it is touched, and returns to now after a save. A timestamp more than a day ahead is refused. Optional comment. Enter key submits. Guarded against double-tap. |
+| Edit | Pencil on each row loads it into the same card, which switches to "Save changes" with a Cancel beside it; the row being edited is outlined in `--accent`. Every field is editable including the timestamp, the id is kept, and changing the date re-sorts the row. Deleting the row under edit exits edit mode, so a later save cannot resurrect it. |
+| Delete | Single delegated listener on `#log`, not one per row. Guarded by a native `confirm()` naming the reading and its timestamp. An inline Undo was built first and removed after device testing — it sat in the message line and was too easy to miss, and an undo nobody notices is not a safety net. Don't rebuild it; the interruption has to come before the write. |
 | Stats | Avg systolic, avg diastolic, latest. Non-finite values filtered out. |
 | Chart | Inline SVG, last 30 readings, systolic red / diastolic green. Hidden below 2 readings. |
 | Row windowing | 50 rows rendered by default with a "Show all N" toggle. Rebuilding the log dominated render cost. |
@@ -259,7 +260,8 @@ so a future jsdom change breaks the run loudly instead of quietly.
 - AT-15.5 asserts the newest entry is deletable after restart — a float-id bug broke exactly this.
 - AT-17.2 asserts decimals are rejected rather than truncated.
 - AT-7.5/7.6 assert bad dates are rejected on load — before this, a restored backup carrying free text or an impossible date landed in the log and skewed the averages.
-- AT-6b asserts a delete can be undone, including that the original id comes back rather than a reissued one.
+- AT-6b asserts a cancelled delete never reaches the database, checked after a restart rather than just on screen — the failure it guards against is a delete that runs before the prompt is answered.
+- AT-23.13 asserts an edit keeps the record's id. Reissuing it would have left the old row in the database and shown a duplicate after the next restart.
 - AT-19.21 asserts Canada's Normal row bounds both numbers — it read "under 120 systolic" while `classify()` was tagging 110/85 as HTN, so the reference table contradicted the app on the same screen. AT-19.22 pins the other half: if that contradiction is ever "fixed" by changing `classify()` instead of the table, it fails.
 
 ---
