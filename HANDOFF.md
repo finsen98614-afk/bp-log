@@ -6,7 +6,7 @@ Blood pressure tracking PWA. Local-first, offline-capable, no backend.
 - **Live:** https://finsen98614-afk.github.io/bp-log/
 - **Owner:** Finsen (GitHub `finsen98614-afk`, email `finsen98614@gmail.com`)
 - **Device:** Redmi 14 Pro, Android, Chrome. Installed as a PWA from the app drawer.
-- **Current version:** service worker cache `bp-log-v20`
+- **Current version:** service worker cache `bp-log-v21`
 - **Tests:** 203 checks (194 app + 9 service worker) — `npm install && npm test`
 
 ---
@@ -47,31 +47,37 @@ HANDOFF.md               this file
 
 Single-file design is deliberate: no build step, no bundler, no dependencies. Editing means opening one file. Keep it that way unless there's a strong reason.
 
-**The icon** is a monitor display: a reading, a pulse, and a progress bar on a
-pale panel. It went bar chart → aneroid gauge → cuff → this, chosen by the owner
-from a reference image and rebuilt as vector so it stays editable.
+**The icon** is a blood droplet with a gauge inside it — a teal-to-amber arc and a
+needle, on a dark ground. It went bar chart → aneroid gauge → cuff → monitor
+display → this. The owner generated candidates in Canva and picked one; it was
+then rebuilt by hand as SVG rather than exported.
 
-Two things about it are deliberate:
+That rebuild is the point, not a detour. Canva exports raster only — `pdf, png,
+jpg, gif, pptx, mp4, csv`, no SVG — so exporting would have made a bitmap the
+source of truth, ended `npm run icons`, and turned every later tweak into a
+round trip through a web editor. As vector it stays a text file anyone can edit.
 
 *Full bleed, not a rounded tile.* The reference had rounded corners and a margin
 baked in. Those are the launcher's job — it masks to a circle or a squircle of its
 own choosing, and art that brings its own rounding ends up clipped into a smaller
-square. The blue runs to the edge instead and the panel sits inside the safe zone,
-so the mask only ever eats flat colour.
+square. The dark ground runs to the edge and the droplet sits inside the safe
+zone, so the mask only ever eats flat colour.
 
-*It carries text, which small icons usually shouldn't.* Checked rather than
-assumed: rendered at 48, 72 and 96 physical pixels, "118/75" survives all three
-and "mmHg" is lost at every one. It holds up because Android renders a 48dp icon
-at ~144px on a 3x screen. On a low-density device the small type would go.
+No text, which is why it survives being small: rendered at 48, 72 and 96 physical
+pixels it still reads as a droplet with a dial. The monitor-display icon before it
+depended on Android drawing a 48dp icon at ~144px on a 3x screen; this one does
+not.
 
-Its colours are its own and touch neither invariant 7 palette — nothing here
-grades a reading. Note the icon is light and `background_color` in the manifest
-is `#0E1416`, so the PWA splash puts a pale icon on a near-black field.
+On invariant 7: the teal-to-amber arc is a gauge face showing a range, which is
+what those colours are for, and the red is depicting blood rather than grading it.
+Nothing in the icon labels a reading.
+
+The ground is `#2A2F3A`, lighter than the app's `#0E1416`. `background_color` in
+the manifest is still `#0E1416`, so the PWA splash shows the icon on a slightly
+darker field — close enough to read as intentional, unlike the pale icon before it.
 
 `icon.svg` is the source of truth; the PNGs are rendered from it and committed,
-so a clone never has to build anything. Text renders through whatever font the
-rasteriser finds — `Arial, Helvetica, sans-serif` is specified, and a machine
-without them will produce a different-looking icon.
+so a clone never has to build anything.
 
 **To change it:** edit `icon.svg`, then
 
@@ -88,7 +94,7 @@ It is full bleed on purpose. The manifest declares these maskable, so the launch
 crops to a shape of its choosing — a circle, a squircle — and art with rounding
 already baked in ends up clipped into a smaller square. `npm run icons` measures
 the rendered PNG and fails if anything reaches past the safe zone, so this is
-checked rather than trusted: the panel reaches 190px of the 205px allowed.
+checked rather than trusted: the droplet reaches 193.5px of the 205px allowed.
 
 Changing the icon does **not** reach an installed PWA. Android copies it into the
 launcher at install time and ignores later manifest changes, so seeing a new icon
