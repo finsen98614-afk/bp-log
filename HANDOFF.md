@@ -6,7 +6,7 @@ Blood pressure tracking PWA. Local-first, offline-capable, no backend.
 - **Live:** https://finsen98614-afk.github.io/bp-log/
 - **Owner:** Finsen (GitHub `finsen98614-afk`, email `finsen98614@gmail.com`)
 - **Device:** Redmi 14 Pro, Android, Chrome. Installed as a PWA from the app drawer.
-- **Current version:** service worker cache `bp-log-v18`
+- **Current version:** service worker cache `bp-log-v19`
 - **Tests:** 203 checks (194 app + 9 service worker) — `npm install && npm test`
 
 ---
@@ -47,10 +47,17 @@ HANDOFF.md               this file
 
 Single-file design is deliberate: no build step, no bundler, no dependencies. Editing means opening one file. Keep it that way unless there's a strong reason.
 
-**The icon** is an aneroid gauge — the sign for blood pressure — with the app's own
-severity ramp as the dial face. It replaced a bar chart, which said "statistics",
-not "blood pressure". `icon.svg` is the source of truth; the PNGs are rendered
-from it and committed, so a clone never has to build anything.
+**The icon** is a cuff wrapped around an upper arm, with the tube and squeeze bulb
+that make it unmistakably a sphygmomanometer rather than a strap or a battery.
+It went bar chart → aneroid gauge → cuff; the gauge was legible but read as a
+speedometer, and the bar chart said "statistics", not "blood pressure".
+
+Its colours sit outside invariant 7 without breaking it: the cuff is `--accent`,
+and the arm is a warm tan that is depicting an arm, not grading anything. No
+severity colour appears, which is the point — an icon has no reading to grade.
+
+`icon.svg` is the source of truth; the PNGs are rendered from it and committed,
+so a clone never has to build anything.
 
 **To change it:** edit `icon.svg`, then
 
@@ -67,7 +74,7 @@ It is full bleed on purpose. The manifest declares these maskable, so the launch
 crops to a shape of its choosing — a circle, a squircle — and art with rounding
 already baked in ends up clipped into a smaller square. `npm run icons` measures
 the rendered PNG and fails if anything reaches past the safe zone, so this is
-checked rather than trusted: the gauge reaches 173px of the 205px allowed.
+checked rather than trusted: the cuff reaches 191px of the 205px allowed.
 
 Changing the icon does **not** reach an installed PWA. Android copies it into the
 launcher at install time and ignores later manifest changes, so seeing a new icon

@@ -1,4 +1,4 @@
-const CACHE = 'bp-log-v18';
+const CACHE = 'bp-log-v19';
 const ASSETS = [
   './',
   './index.html',
