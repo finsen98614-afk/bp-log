@@ -1,4 +1,4 @@
-﻿const CACHE = 'bp-log-v15';
+const CACHE = 'bp-log-v16';
 const ASSETS = [
   './',
   './index.html',
@@ -79,5 +79,6 @@ self.addEventListener('fetch', e => {
     })
   );
 });
+
 
 

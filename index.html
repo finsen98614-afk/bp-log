@@ -60,13 +60,13 @@
   .send{width:100%;background:var(--normal);color:#08130D;padding:13px;font-weight:700;font-size:14px;letter-spacing:.04em;}
   .send:active{filter:brightness(.92);}
   .send:disabled{opacity:.45;}
-  /* Grid, not wrapping flex. Four buttons at 88px minimum wrapped to 3 + 1
-     below about 400px viewport, leaving Restore stranded on its own line --
-     and phones sit right on that boundary. Two columns then four is
-     deterministic: always a full row, never an orphan. */
-  .tools{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-bottom:14px;}
-  @media (min-width:420px){ .tools{grid-template-columns:repeat(4,1fr);} }
-  .ghost{background:none;border:1px solid var(--line);color:var(--muted);padding:9px 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;}
+  /* Four equal columns at every width. A wrapping flex row used to break to
+     3 + 1 below ~400px and strand Restore on its own line; a fixed grid can't.
+     The label shrinks instead of the row breaking -- at 320px each cell is
+     about 68px, which "Restore" clears at this size. */
+  .tools{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px;}
+  .ghost{background:none;border:1px solid var(--line);color:var(--muted);padding:9px 3px;font-size:10px;text-transform:uppercase;letter-spacing:.02em;}
+  @media (min-width:400px){ .tools{gap:7px;} .ghost{padding:9px 6px;font-size:10.5px;letter-spacing:.05em;} }
   .ghost:active{border-color:var(--muted);color:var(--text);}
   .ghost:disabled{opacity:.4;}
 
