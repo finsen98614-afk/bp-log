@@ -908,118 +908,144 @@ async function readBlob(blob) {
     dom2.window.close();
   }
 
-  console.log('\n=== AT-23  Editing a reading, timestamp included ===');
+  console.log('\n=== AT-23  Editing the date, time and comment ===');
   {
-    // Readings get logged late and copied in from a monitor's memory days
-    // later. The report leads with 7- and 30-day averages, so a timestamp that
-    // only ever means "when it was typed" quietly makes those wrong.
-    const setWhen = (dom, v) => {
-      const el = $(dom, '#fWhen');
+    // Adding always stamps the clock. Editing exists for the two things that
+    // are genuinely wrong afterwards -- when the reading was taken, and what
+    // was noted about it. The measured numbers are what the machine said and
+    // are corrected by deleting the row, not by overwriting it in place.
+    const set = (dom, id, v) => {
+      const el = $(dom, '#' + id);
       el.value = v;
       el.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
     };
 
     const factory = new FDBFactory();
     const dom = await boot({ keepFactory: factory });
-    check('AT-23.1 the time field defaults to now',
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test($(dom, '#fWhen').value), $(dom, '#fWhen').value);
+    check('AT-23.1 the add card shows a clock, not date fields',
+      $(dom, '#clockRow').hidden === false && $(dom, '#whenRow').hidden === true);
+    check('AT-23.2 there is no date field to fill in when adding',
+      dom.window.document.getElementById('fDate').closest('#whenRow') !== null);
 
-    // The case this feature exists for: a reading taken days ago.
-    setWhen(dom, '2026-08-20T07:15');
-    await addReading(dom, 128, 82, 64, 'backdated');
-    check('AT-23.2 a new reading keeps the time it was given',
-      logRows(dom)[0].querySelector('.date').textContent === '2026-08-20 07:15',
-      logRows(dom)[0].querySelector('.date').textContent);
-    check('AT-23.3 the field returns to now after saving',
-      !/2026-08-20/.test($(dom, '#fWhen').value), $(dom, '#fWhen').value);
-
-    // Fixed date too, so the re-sort below is deterministic rather than
-    // depending on where "now" happens to fall relative to the other row.
-    setWhen(dom, '2026-08-25T09:00');
-    await addReading(dom, 140, 90, 70, 'later');
+    await addReading(dom, 128, 82, 64, 'first note');
+    const stamped = logRows(dom)[0].querySelector('.date').textContent;
+    check('AT-23.3 a new reading is stamped with the clock',
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(stamped), stamped);
     check('AT-23.4 every row offers an edit control',
       logRows(dom).every(r => r.querySelector('[data-edit]')));
 
-    // Edit the older row: change the numbers and move it later than the other.
-    const older = logRows(dom).find(r => r.textContent.includes('backdated'));
-    const olderId = older.querySelector('[data-edit]').getAttribute('data-edit');
-    older.querySelector('[data-edit]').click();
+    const id0 = logRows(dom)[0].querySelector('[data-edit]').getAttribute('data-edit');
+    logRows(dom)[0].querySelector('[data-edit]').click();
     await sleep(60);
-    check('AT-23.5 the form is filled from the row',
-      $(dom, '#fSys').value === '128' && $(dom, '#fDia').value === '82' &&
-      $(dom, '#fPulse').value === '64' && $(dom, '#fNote').value === 'backdated',
-      [$(dom, '#fSys').value, $(dom, '#fDia').value, $(dom, '#fPulse').value].join('/'));
-    check('AT-23.6 including the stored timestamp',
-      $(dom, '#fWhen').value === '2026-08-20T07:15', $(dom, '#fWhen').value);
-    check('AT-23.7 the row is marked as the one being edited',
-      dom.window.document.querySelectorAll('.entry.editing').length === 1);
-    check('AT-23.8 the button says what it will do now',
-      $(dom, '#addBtn').textContent === 'Save changes', $(dom, '#addBtn').textContent);
-    check('AT-23.9 a way out is offered', $(dom, '#cancelBtn').hidden === false);
+    check('AT-23.5 editing swaps the clock for date and time fields',
+      $(dom, '#clockRow').hidden === true && $(dom, '#whenRow').hidden === false);
+    check('AT-23.6 they are prefilled from the record',
+      $(dom, '#fDate').value === stamped.slice(0, 10) && $(dom, '#fTime').value === stamped.slice(11, 16),
+      $(dom, '#fDate').value + ' ' + $(dom, '#fTime').value);
+    check('AT-23.7 so is the comment', $(dom, '#fNote').value === 'first note');
+    check('AT-23.8 the measured values are shown for context',
+      $(dom, '#fSys').value === '128' && $(dom, '#fDia').value === '82' && $(dom, '#fPulse').value === '64');
+    check('AT-23.9 but are not editable',
+      ['fSys', 'fDia', 'fPulse'].every(f => $(dom, '#' + f).readOnly === true));
+    check('AT-23.10 the button says what it will do', $(dom, '#addBtn').textContent === 'Save changes');
+    check('AT-23.11 a way out is offered', $(dom, '#cancelBtn').hidden === false);
+    check('AT-23.12 the row is marked', dom.window.document.querySelectorAll('.entry.editing').length === 1);
 
-    check('AT-23.9b the older row starts below the newer one',
-      logRows(dom)[0].textContent.includes('later'));
-    $(dom, '#fSys').value = '133';
-    setWhen(dom, '2026-08-30T21:40');   // now newer than the other row
+    // readOnly is a hint to the user, not a guarantee: assigning .value ignores
+    // it, and so would anyone with devtools. Saving must take the numbers from
+    // the record regardless of what the form now holds.
+    $(dom, '#fSys').value = '199';
+    $(dom, '#fPulse').value = '250';
+    set(dom, 'fDate', '2026-08-11');
+    set(dom, 'fTime', '07:05');
+    set(dom, 'fNote', 'corrected note');
     $(dom, '#addBtn').click();
     await sleep(90);
-    check('AT-23.10 editing does not create a second row', logRows(dom).length === 2,
-      'got ' + logRows(dom).length);
-    const edited = logRows(dom).find(r => r.textContent.includes('backdated'));
-    check('AT-23.11 the value changed', edited.textContent.includes('133/82'));
-    check('AT-23.12 the timestamp changed',
-      edited.querySelector('.date').textContent === '2026-08-30 21:40',
-      edited.querySelector('.date').textContent);
-    check('AT-23.13 the id is preserved, not reissued',
-      edited.querySelector('[data-edit]').getAttribute('data-edit') === olderId);
-    check('AT-23.14 the new date re-sorts the row to the top',
-      logRows(dom)[0].textContent.includes('backdated'));
-    check('AT-23.15 the card returns to add mode',
-      $(dom, '#addBtn').textContent === '+ Add Reading' && $(dom, '#cancelBtn').hidden === true);
+    check('AT-23.13 editing does not create a second row', logRows(dom).length === 1, 'got ' + logRows(dom).length);
+    const row = logRows(dom)[0];
+    check('AT-23.14 the timestamp changed', row.querySelector('.date').textContent === '2026-08-11 07:05',
+      row.querySelector('.date').textContent);
+    check('AT-23.15 the comment changed', row.textContent.includes('corrected note'));
+    check('AT-23.16 the measured values are untouched by the tampered fields',
+      row.textContent.includes('128/82') && row.textContent.includes('64 bpm') &&
+      !row.textContent.includes('199'), row.textContent.replace(/\s+/g, ' ').trim());
+    check('AT-23.17 the id is preserved', row.querySelector('[data-edit]').getAttribute('data-edit') === id0);
+    check('AT-23.18 the card returns to add mode',
+      $(dom, '#addBtn').textContent === '+ Add Reading' && $(dom, '#cancelBtn').hidden === true &&
+      $(dom, '#clockRow').hidden === false);
+    check('AT-23.19 and the value fields are typeable again',
+      ['fSys', 'fDia', 'fPulse'].every(f => $(dom, '#' + f).readOnly === false));
     dom.window.close();
 
     const dom2 = await boot({ keepFactory: factory });
-    check('AT-23.16 the edit reached the database, not just the screen',
-      logRows(dom2).some(r => r.textContent.includes('133/82')));
-    check('AT-23.17 and so did the new timestamp',
-      logRows(dom2).some(r => r.querySelector('.date').textContent === '2026-08-30 21:40'));
-    check('AT-23.18 still two rows after restart', logRows(dom2).length === 2);
+    check('AT-23.20 the edit reached the database, not just the screen',
+      logRows(dom2)[0].querySelector('.date').textContent === '2026-08-11 07:05' &&
+      logRows(dom2)[0].textContent.includes('128/82'));
+
+    // A back-dated row must sort by its new date, which is the whole point of
+    // being able to change it.
+    await addReading(dom2, 140, 90);
+    check('AT-23.21 the back-dated row sorts below a newer one',
+      logRows(dom2)[1].textContent.includes('128/82'), logRows(dom2)[1].textContent.slice(0, 30));
 
     // Cancel must change nothing at all.
-    logRows(dom2)[0].querySelector('[data-edit]').click();
+    logRows(dom2)[1].querySelector('[data-edit]').click();
     await sleep(60);
-    $(dom2, '#fSys').value = '199';
-    setWhen(dom2, '2026-01-01T01:01');
+    set(dom2, 'fDate', '2026-01-01');
+    set(dom2, 'fNote', 'should not stick');
     $(dom2, '#cancelBtn').click();
     await sleep(60);
-    check('AT-23.19 cancelling leaves the reading alone',
-      !logRows(dom2).some(r => r.textContent.includes('199/')));
-    check('AT-23.20 and leaves no row marked',
+    check('AT-23.22 cancelling leaves the reading alone',
+      !logRows(dom2).some(r => r.textContent.includes('should not stick')) &&
+      logRows(dom2).some(r => r.querySelector('.date').textContent === '2026-08-11 07:05'));
+    check('AT-23.23 and leaves no row marked',
       dom2.window.document.querySelectorAll('.entry.editing').length === 0);
-    check('AT-23.21 and restores the add button',
-      $(dom2, '#addBtn').textContent === '+ Add Reading');
 
-    // A reading you have not taken yet cannot exist.
-    const future = new Date(Date.now() + 40 * 86400000).toISOString().slice(0, 16);
-    setWhen(dom2, future);
-    const before = logRows(dom2).length;
-    await addReading(dom2, 122, 78);
-    check('AT-23.22 a far-future timestamp is refused',
-      logRows(dom2).length === before && /ahead/.test(msgText(dom2)), msgText(dom2));
+    // An empty comment clears the note rather than storing an empty string.
+    const backdated = logRows(dom2).find(r => r.textContent.includes('128/82'));
+    backdated.querySelector('[data-edit]').click();
+    await sleep(60);
+    set(dom2, 'fNote', '');
+    $(dom2, '#addBtn').click();
+    await sleep(90);
+    check('AT-23.24 clearing the comment removes the note',
+      !logRows(dom2).some(r => r.querySelector('.note')), 'a note survived');
     dom2.window.close();
 
-    // Deleting the row under edit must not leave the form aimed at a dead id.
-    const dom3 = await boot();
-    await addReading(dom3, 120, 80);
+    const dom3 = await boot({ keepFactory: factory });
+    check('AT-23.25 the cleared note stayed cleared after restart',
+      !logRows(dom3).some(r => r.querySelector('.note')));
+
+    // Neither half of the timestamp may be left blank.
     logRows(dom3)[0].querySelector('[data-edit]').click();
     await sleep(60);
-    logRows(dom3)[0].querySelector('.del').click();
+    set(dom3, 'fTime', '');
+    $(dom3, '#addBtn').click();
     await sleep(80);
-    check('AT-23.23 deleting the edited row exits edit mode',
-      $(dom3, '#addBtn').textContent === '+ Add Reading' && $(dom3, '#cancelBtn').hidden === true,
-      $(dom3, '#addBtn').textContent);
-    check('AT-23.24 and saving afterwards cannot resurrect it', logRows(dom3).length === 0);
+    check('AT-23.26 a missing time is refused', /required/.test(msgText(dom3)), msgText(dom3));
+
+    // A reading you have not taken yet cannot exist.
+    const far = new Date(Date.now() + 40 * 86400000).toISOString().slice(0, 10);
+    set(dom3, 'fDate', far);
+    set(dom3, 'fTime', '09:00');
+    $(dom3, '#addBtn').click();
+    await sleep(80);
+    check('AT-23.27 a far-future timestamp is refused', /ahead/.test(msgText(dom3)), msgText(dom3));
+    $(dom3, '#cancelBtn').click();
+    await sleep(40);
     dom3.window.close();
+
+    // Deleting the row under edit must not leave the form aimed at a dead id.
+    const dom4 = await boot();
+    await addReading(dom4, 120, 80);
+    logRows(dom4)[0].querySelector('[data-edit]').click();
+    await sleep(60);
+    logRows(dom4)[0].querySelector('.del').click();
+    await sleep(80);
+    check('AT-23.28 deleting the edited row exits edit mode',
+      $(dom4, '#addBtn').textContent === '+ Add Reading' && $(dom4, '#cancelBtn').hidden === true);
+    check('AT-23.29 and saving afterwards cannot resurrect it', logRows(dom4).length === 0);
+    dom4.window.close();
   }
 
   console.log('\n' + '='.repeat(52));

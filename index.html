@@ -55,6 +55,11 @@
   input{width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:7px;color:var(--text);padding:11px 9px;font-family:var(--mono);font-size:16px;}
   input:focus{outline:none;border-color:var(--accent);}
   .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:10px;}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:10px;}
+  /* Readable, obviously not typeable. The measurement is what the machine said;
+     the app will not quietly let it drift. */
+  input[readonly]{color:var(--muted);border-style:dashed;}
+  input[readonly]:focus{border-color:var(--line);}
   .fld{margin-bottom:10px;}
   button{font-family:var(--mono);border-radius:7px;cursor:pointer;border:none;}
   .send{width:100%;background:var(--normal);color:#08130D;padding:13px;font-weight:700;font-size:14px;letter-spacing:.04em;}
@@ -170,9 +175,10 @@
 
   <h2 class="sect">New reading</h2>
   <div class="card" id="card">
-    <div class="fld">
-      <label for="fWhen">Date &amp; time</label>
-      <input type="datetime-local" id="fWhen">
+    <div class="clock" id="clockRow">Logging at <b id="clock"></b></div>
+    <div class="row2" id="whenRow" hidden>
+      <div><label for="fDate">Date</label><input type="date" id="fDate"></div>
+      <div><label for="fTime">Time</label><input type="time" id="fTime"></div>
     </div>
     <div class="row3">
       <div><label for="fSys">Systolic</label><input type="number" inputmode="numeric" id="fSys" placeholder="120"></div>
@@ -245,7 +251,6 @@
   const PAGE=50;             // rows rendered before the "show all" control appears
   let showAll=false;
   let editingId=null;        // id of the reading the card is currently editing, or null
-  let whenPinned=false;      // true once the user sets a time themselves; stops the clock overwriting it
 
   // Monotonic millisecond timestamp. Multiplying a ms epoch by a stride would
   // exceed Number.MAX_SAFE_INTEGER and silently lose precision, so instead we
@@ -274,11 +279,12 @@
     return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
   }
   function esc(s){const e=document.createElement('div');e.textContent=s;return e.innerHTML;}
-  // Stored dates are 'YYYY-MM-DD HH:MM'; <input type="datetime-local"> wants a
-  // 'T' in the middle. Same string either way, so no timezone maths is involved
-  // and none should be introduced -- these are wall-clock readings.
-  const toInputDT=s=>String(s).replace(' ','T');
-  const fromInputDT=v=>String(v).replace('T',' ').slice(0,16);
+  // Stored dates are 'YYYY-MM-DD HH:MM' -- exactly a date field's value, a
+  // space, and a time field's value. Splitting and rejoining is string work,
+  // not date arithmetic, and must stay that way: these are wall-clock readings
+  // and putting them through Date() would drag a timezone into it.
+  const splitWhen=s=>{const p=String(s).split(' ');return {date:p[0]||'',time:(p[1]||'').slice(0,5)};};
+  const joinWhen=(d,t)=>String(d)+' '+String(t).slice(0,5);
   function setMsg(t,c){const e=document.getElementById('msg');e.textContent=t||'';e.className='msg '+(c||'');}
 
   // Home-BP thresholds differ by region, so the bands are data, not code.
@@ -517,35 +523,46 @@
   // ---------- actions ----------
   // Puts the card back into "add" shape. Deliberately does not touch the
   // message line, so a caller can say what just happened.
+  const MEASURED=['fSys','fDia','fPulse'];
+
   function resetForm(){
     editingId=null;
-    whenPinned=false;
-    ['fSys','fDia','fPulse','fNote'].forEach(id=>{document.getElementById(id).value='';});
+    ['fSys','fDia','fPulse','fNote','fDate','fTime'].forEach(id=>{document.getElementById(id).value='';});
+    MEASURED.forEach(id=>{document.getElementById(id).readOnly=false;});
+    document.getElementById('clockRow').hidden=false;
+    document.getElementById('whenRow').hidden=true;
     document.getElementById('addBtn').textContent='+ Add Reading';
     document.getElementById('cancelBtn').hidden=true;
     document.getElementById('card').classList.remove('editing');
     tickClock();
   }
 
-  // Readings get logged late -- measured at 07:00, typed in at 09:00 -- and get
-  // copied in from a monitor's memory days afterwards. The report leads with
-  // 7- and 30-day averages, so a timestamp that is merely "when it was typed"
-  // quietly makes those wrong. Hence editing, and hence an editable time.
+  // Editing covers when the reading was taken and what was noted about it --
+  // not the reading. A timestamp is genuinely often wrong: measured at 07:00,
+  // typed in at 09:00, and the report leads with 7- and 30-day averages built
+  // on those timestamps. The numbers are what the machine said, so a mistyped
+  // one is corrected by deleting the row and entering it again.
   function startEdit(id){
     const rec=entries.find(x=>x.id===id);
     if(!rec) return;
     editingId=id;
-    whenPinned=true;                 // show the reading's own time, not the clock
+    const w=splitWhen(rec.date);
+    document.getElementById('fDate').value=w.date;
+    document.getElementById('fTime').value=w.time;
+    document.getElementById('fNote').value=rec.note||'';
+    // Shown so it is obvious which reading is being edited, read-only so it is
+    // equally obvious it is not on the table.
     document.getElementById('fSys').value=rec.sys;
     document.getElementById('fDia').value=rec.dia;
     document.getElementById('fPulse').value=rec.pulse!=null?rec.pulse:'';
-    document.getElementById('fNote').value=rec.note||'';
-    document.getElementById('fWhen').value=toInputDT(rec.date);
+    MEASURED.forEach(f=>{document.getElementById(f).readOnly=true;});
+    document.getElementById('clockRow').hidden=true;
+    document.getElementById('whenRow').hidden=false;
     document.getElementById('addBtn').textContent='Save changes';
     document.getElementById('cancelBtn').hidden=false;
     document.getElementById('card').classList.add('editing');
     render();
-    setMsg('Editing the reading from '+rec.date+'.','warn');
+    setMsg('Editing '+rec.sys+'/'+rec.dia+' — you can change its date, time and comment.','warn');
     document.getElementById('card').scrollIntoView({block:'start'});
   }
 
@@ -559,26 +576,43 @@
   async function onSubmit(){
     if(busy) return;            // a second tap before the write resolves would duplicate the entry
     setMsg('');
-    const sRaw=document.getElementById('fSys').value.trim();
-    const dRaw=document.getElementById('fDia').value.trim();
-    const pRaw=document.getElementById('fPulse').value.trim();
     const note=document.getElementById('fNote').value.trim();
-    // parseInt would silently accept "124.7" as 124 and "12ab" as 12 -- a blood
-    // pressure the user never entered. Require the field to be a whole number.
-    const whole=v=>/^\d+$/.test(v)?Number(v):NaN;
-    const s=whole(sRaw), d=whole(dRaw);
+    const editing=editingId!==null;
+    let id, date, s, d, p;
 
-    if(!Number.isFinite(s)||s<40||s>260){ setMsg('Systolic must be a whole number, 40–260.','err'); return; }
-    if(!Number.isFinite(d)||d<20||d>200){ setMsg('Diastolic must be a whole number, 20–200.','err'); return; }
-    if(s<=d){ setMsg('Systolic should be higher than diastolic.','err'); return; }
-    let p=null;
-    if(pRaw!==''){
-      p=whole(pRaw);
-      if(!Number.isFinite(p)||p<25||p>250){ setMsg('Pulse must be a whole number, 25–250, or blank.','err'); return; }
+    if(editing){
+      // The measured values come from the stored record, never from the form.
+      // The inputs are readonly, but readonly is a hint to the user, not a
+      // guarantee -- reading them back would make the numbers editable to
+      // anyone who opens devtools, which is exactly what this mode rules out.
+      const rec0=entries.find(x=>x.id===editingId);
+      if(!rec0){ setMsg('That reading is no longer here — nothing was changed.','err'); resetForm(); render(); return; }
+      id=rec0.id; s=rec0.sys; d=rec0.dia; p=rec0.pulse;
+      const rawDate=document.getElementById('fDate').value.trim();
+      const rawTime=document.getElementById('fTime').value.trim();
+      if(!rawDate||!rawTime){ setMsg('A date and a time are both required.','err'); return; }
+      date=joinWhen(rawDate,rawTime);
+    }else{
+      id=newId();
+      date=nowStr();          // the clock, always: back-dating is done by editing afterwards
+      const sRaw=document.getElementById('fSys').value.trim();
+      const dRaw=document.getElementById('fDia').value.trim();
+      const pRaw=document.getElementById('fPulse').value.trim();
+      // parseInt would silently accept "124.7" as 124 and "12ab" as 12 -- a blood
+      // pressure the user never entered. Require the field to be a whole number.
+      const whole=v=>/^\d+$/.test(v)?Number(v):NaN;
+      s=whole(sRaw); d=whole(dRaw);
+      if(!Number.isFinite(s)||s<40||s>260){ setMsg('Systolic must be a whole number, 40–260.','err'); return; }
+      if(!Number.isFinite(d)||d<20||d>200){ setMsg('Diastolic must be a whole number, 20–200.','err'); return; }
+      if(s<=d){ setMsg('Systolic should be higher than diastolic.','err'); return; }
+      p=null;
+      if(pRaw!==''){
+        p=whole(pRaw);
+        if(!Number.isFinite(p)||p<25||p>250){ setMsg('Pulse must be a whole number, 25–250, or blank.','err'); return; }
+      }
     }
 
-    const date=fromInputDT(document.getElementById('fWhen').value);
-    if(!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(date)){ setMsg('A date and time is required.','err'); return; }
+    if(!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(date)){ setMsg('That date and time is not usable.','err'); return; }
     const t=Date.parse(date.replace(' ','T'));
     if(!Number.isFinite(t)){ setMsg('That date and time is not a real one.','err'); return; }
     // A reading you have not taken yet cannot exist. A day of slack absorbs a
@@ -586,8 +620,7 @@
     // the wrong year, which would park the entry outside every average.
     if(t>Date.now()+86400000){ setMsg('That is more than a day ahead — check the year.','err'); return; }
 
-    const editing=editingId!==null;
-    const rec=normalize({id:editing?editingId:newId(),date:date,sys:s,dia:d,pulse:p,note:note||null});
+    const rec=normalize({id:id,date:date,sys:s,dia:d,pulse:p,note:note||null});
     if(!rec){ setMsg('Could not build a valid record from those values.','err'); return; }
 
     busy=true;
@@ -855,12 +888,11 @@
   }
 
   // ---------- init ----------
-  // Keeps the time field on "now" so the common case stays one tap, but stops
-  // the moment the user sets a time themselves or starts an edit -- otherwise
-  // the clock would type over what they just entered.
+  // Adding always stamps the clock, so the label just says what will be
+  // recorded. It is hidden during an edit, where date and time are fields.
   function tickClock(){
-    const el=document.getElementById('fWhen');
-    if(el && !whenPinned && editingId===null) el.value=toInputDT(nowStr());
+    const el=document.getElementById('clock');
+    if(el) el.textContent=nowStr();
   }
 
   // Re-sync when the app returns to the foreground: a backgrounded PWA has its
@@ -884,13 +916,12 @@
     });
     document.getElementById('addBtn').addEventListener('click',onSubmit);
     document.getElementById('cancelBtn').addEventListener('click',cancelEdit);
-    document.getElementById('fWhen').addEventListener('input',()=>{ whenPinned=true; });
     document.getElementById('csvBtn').addEventListener('click',exportCsv);
     document.getElementById('backupBtn').addEventListener('click',backup);
     document.getElementById('printBtn').addEventListener('click',printReport);
     document.getElementById('restoreBtn').addEventListener('click',()=>document.getElementById('restoreFile').click());
     document.getElementById('restoreFile').addEventListener('change',restore);
-    ['fSys','fDia','fPulse','fNote','fWhen'].forEach(id=>{
+    ['fSys','fDia','fPulse','fNote','fDate','fTime'].forEach(id=>{
       document.getElementById(id).addEventListener('keydown',ev=>{ if(ev.key==='Enter') onSubmit(); });
     });
 

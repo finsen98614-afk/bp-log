@@ -6,8 +6,8 @@ Blood pressure tracking PWA. Local-first, offline-capable, no backend.
 - **Live:** https://finsen98614-afk.github.io/bp-log/
 - **Owner:** Finsen (GitHub `finsen98614-afk`, email `finsen98614@gmail.com`)
 - **Device:** Redmi 14 Pro, Android, Chrome. Installed as a PWA from the app drawer.
-- **Current version:** service worker cache `bp-log-v22`
-- **Tests:** 228 checks (219 app + 9 service worker) — `npm install && npm test`
+- **Current version:** service worker cache `bp-log-v23`
+- **Tests:** 232 checks (223 app + 9 service worker) — `npm install && npm test`
 
 ---
 
@@ -223,8 +223,8 @@ panel and the printed footnote say so instead.
 
 | Feature | Notes |
 |---|---|
-| Add reading | Date and time default to now and can be changed, so a reading taken earlier — or copied out of a monitor's memory days later — carries the time it was actually taken. The field stops tracking the clock the moment it is touched, and returns to now after a save. A timestamp more than a day ahead is refused. Optional comment. Enter key submits. Guarded against double-tap. |
-| Edit | Pencil on each row loads it into the same card, which switches to "Save changes" with a Cancel beside it; the row being edited is outlined in `--accent`. Every field is editable including the timestamp, the id is kept, and changing the date re-sorts the row. Deleting the row under edit exits edit mode, so a later save cannot resurrect it. |
+| Add reading | Always stamped with the clock; the card shows a live "Logging at" label rather than a field, because adding is the one-tap path. Back-dating is done by adding then editing. Optional comment. Enter key submits. Guarded against double-tap. |
+| Edit | Pencil on each row loads it into the same card, which switches to "Save changes" with a Cancel beside it; the row being edited is outlined in `--accent`. **Only date, time and comment are editable.** The measured values are shown so you can tell which reading you have open, but they are `readonly`, and — more importantly — a save reads them back out of the stored record rather than out of the form, so tampering with the DOM changes nothing. A mistyped reading is corrected by deleting the row and entering it again. The id is kept, changing the date re-sorts the row, clearing the comment removes the note rather than storing an empty string, and a timestamp more than a day ahead is refused. Deleting the row under edit exits edit mode, so a later save cannot resurrect it. |
 | Delete | Single delegated listener on `#log`, not one per row. Guarded by a native `confirm()` naming the reading and its timestamp. An inline Undo was built first and removed after device testing — it sat in the message line and was too easy to miss, and an undo nobody notices is not a safety net. Don't rebuild it; the interruption has to come before the write. |
 | Stats | Avg systolic, avg diastolic, latest. Non-finite values filtered out. |
 | Chart | Inline SVG, last 30 readings, systolic red / diastolic green. Hidden below 2 readings. |
@@ -261,7 +261,8 @@ so a future jsdom change breaks the run loudly instead of quietly.
 - AT-17.2 asserts decimals are rejected rather than truncated.
 - AT-7.5/7.6 assert bad dates are rejected on load — before this, a restored backup carrying free text or an impossible date landed in the log and skewed the averages.
 - AT-6b asserts a cancelled delete never reaches the database, checked after a restart rather than just on screen — the failure it guards against is a delete that runs before the prompt is answered.
-- AT-23.13 asserts an edit keeps the record's id. Reissuing it would have left the old row in the database and shown a duplicate after the next restart.
+- AT-23.16 sets the readonly value fields to nonsense before saving an edit and asserts the stored reading is unchanged. `readonly` alone would not have caught it — the guarantee is that the save ignores the form.
+- AT-23.17 asserts an edit keeps the record's id. Reissuing it would have left the old row in the database and shown a duplicate after the next restart.
 - AT-19.21 asserts Canada's Normal row bounds both numbers — it read "under 120 systolic" while `classify()` was tagging 110/85 as HTN, so the reference table contradicted the app on the same screen. AT-19.22 pins the other half: if that contradiction is ever "fixed" by changing `classify()` instead of the table, it fails.
 
 ---
@@ -313,6 +314,20 @@ What it cannot cover is the update lifecycle — which worker answers which laun
 That still needs the device.
 
 ---
+
+## Change the repo, don't upload over it
+
+Commit `010039a` (2026-08-24) added inline comment editing, with 140 lines of
+tests. It is not in the app today. Two later commits — both titled "Add files via
+upload" — replaced `index.html` wholesale from a copy that predated it, and the
+feature disappeared without a diff anyone would notice. The same uploads also
+reverted the fix for `acceptance.js` reading its HTML from a hardcoded sandbox
+path, which then had to be found and fixed a second time.
+
+That is a workflow problem, not a code one: editing the app somewhere else and
+uploading the result silently discards whatever is in the repo. With 232 tests
+here now, a re-upload would take them with it. Edit the files in the repo, or
+pull first and merge.
 
 ## Known limits
 
