@@ -190,8 +190,7 @@
 
   <h2 class="sect">New reading</h2>
   <div class="card" id="card">
-    <div class="clock" id="clockRow">Logging at <b id="clock"></b></div>
-    <div class="row2" id="whenRow" hidden>
+    <div class="row2" id="whenRow">
       <div><label for="fDate">Date</label><input type="date" id="fDate"></div>
       <div><label for="fTime">Time</label><input type="time" id="fTime"></div>
     </div>
@@ -283,6 +282,7 @@
   const PAGE=50;             // rows rendered before the "show all" control appears
   let showAll=false;
   let editingId=null;        // id of the reading the card is currently editing, or null
+  let whenPinned=false;      // true once the user sets a time themselves; stops the clock overwriting it
 
   // Monotonic millisecond timestamp. Multiplying a ms epoch by a stride would
   // exceed Number.MAX_SAFE_INTEGER and silently lose precision, so instead we
@@ -559,10 +559,9 @@
 
   function resetForm(){
     editingId=null;
-    ['fSys','fDia','fPulse','fNote','fDate','fTime'].forEach(id=>{document.getElementById(id).value='';});
+    whenPinned=false;
+    ['fSys','fDia','fPulse','fNote'].forEach(id=>{document.getElementById(id).value='';});
     MEASURED.forEach(id=>{document.getElementById(id).readOnly=false;});
-    document.getElementById('clockRow').hidden=false;
-    document.getElementById('whenRow').hidden=true;
     document.getElementById('addBtn').textContent='+ Add Reading';
     document.getElementById('cancelBtn').hidden=true;
     document.getElementById('card').classList.remove('editing');
@@ -570,14 +569,13 @@
   }
 
   // Editing covers when the reading was taken and what was noted about it --
-  // not the reading. A timestamp is genuinely often wrong: measured at 07:00,
-  // typed in at 09:00, and the report leads with 7- and 30-day averages built
-  // on those timestamps. The numbers are what the machine said, so a mistyped
-  // one is corrected by deleting the row and entering it again.
+  // not the reading. The numbers are what the machine said, so a mistyped one
+  // is corrected by deleting the row and entering it again.
   function startEdit(id){
     const rec=entries.find(x=>x.id===id);
     if(!rec) return;
     editingId=id;
+    whenPinned=true;                 // show the reading's own time, not the clock
     const w=splitWhen(rec.date);
     document.getElementById('fDate').value=w.date;
     document.getElementById('fTime').value=w.time;
@@ -588,8 +586,6 @@
     document.getElementById('fDia').value=rec.dia;
     document.getElementById('fPulse').value=rec.pulse!=null?rec.pulse:'';
     MEASURED.forEach(f=>{document.getElementById(f).readOnly=true;});
-    document.getElementById('clockRow').hidden=true;
-    document.getElementById('whenRow').hidden=false;
     document.getElementById('addBtn').textContent='Save changes';
     document.getElementById('cancelBtn').hidden=false;
     document.getElementById('card').classList.add('editing');
@@ -612,6 +608,14 @@
     const editing=editingId!==null;
     let id, date, s, d, p;
 
+    // Both paths take the timestamp from the same two fields. They default to
+    // the clock and follow it until touched, so logging a reading now is still
+    // one tap, but a reading taken earlier can be entered as such directly.
+    const rawDate=document.getElementById('fDate').value.trim();
+    const rawTime=document.getElementById('fTime').value.trim();
+    if(!rawDate||!rawTime){ setMsg('A date and a time are both required.','err'); return; }
+    date=joinWhen(rawDate,rawTime);
+
     if(editing){
       // The measured values come from the stored record, never from the form.
       // The inputs are readonly, but readonly is a hint to the user, not a
@@ -620,13 +624,8 @@
       const rec0=entries.find(x=>x.id===editingId);
       if(!rec0){ setMsg('That reading is no longer here — nothing was changed.','err'); resetForm(); render(); return; }
       id=rec0.id; s=rec0.sys; d=rec0.dia; p=rec0.pulse;
-      const rawDate=document.getElementById('fDate').value.trim();
-      const rawTime=document.getElementById('fTime').value.trim();
-      if(!rawDate||!rawTime){ setMsg('A date and a time are both required.','err'); return; }
-      date=joinWhen(rawDate,rawTime);
     }else{
       id=newId();
-      date=nowStr();          // the clock, always: back-dating is done by editing afterwards
       const sRaw=document.getElementById('fSys').value.trim();
       const dRaw=document.getElementById('fDia').value.trim();
       const pRaw=document.getElementById('fPulse').value.trim();
@@ -999,11 +998,15 @@
   }
 
   // ---------- init ----------
-  // Adding always stamps the clock, so the label just says what will be
-  // recorded. It is hidden during an edit, where date and time are fields.
+  // Keeps the date and time on "now" so adding stays one tap, and stops the
+  // moment the user sets either themselves or opens an edit -- otherwise the
+  // clock would type over what they just chose.
   function tickClock(){
-    const el=document.getElementById('clock');
-    if(el) el.textContent=nowStr();
+    if(whenPinned||editingId!==null) return;
+    const w=splitWhen(nowStr());
+    const dEl=document.getElementById('fDate'), tEl=document.getElementById('fTime');
+    if(dEl) dEl.value=w.date;
+    if(tEl) tEl.value=w.time;
   }
 
   // Re-sync when the app returns to the foreground: a backgrounded PWA has its
@@ -1027,6 +1030,10 @@
     });
     document.getElementById('addBtn').addEventListener('click',onSubmit);
     document.getElementById('cancelBtn').addEventListener('click',cancelEdit);
+    ['fDate','fTime'].forEach(id=>{
+      document.getElementById(id).addEventListener('input',()=>{ whenPinned=true; });
+      document.getElementById(id).addEventListener('change',()=>{ whenPinned=true; });
+    });
     document.getElementById('csvBtn').addEventListener('click',exportCsv);
     document.getElementById('backupBtn').addEventListener('click',backup);
     document.getElementById('printBtn').addEventListener('click',printReport);

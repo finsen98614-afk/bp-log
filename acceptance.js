@@ -929,10 +929,10 @@ async function readBlob(blob) {
 
     const factory = new FDBFactory();
     const dom = await boot({ keepFactory: factory });
-    check('AT-23.1 the add card shows a clock, not date fields',
-      $(dom, '#clockRow').hidden === false && $(dom, '#whenRow').hidden === true);
-    check('AT-23.2 there is no date field to fill in when adding',
-      dom.window.document.getElementById('fDate').closest('#whenRow') !== null);
+    check('AT-23.1 the add card offers date and time, defaulted to now',
+      /^\d{4}-\d{2}-\d{2}$/.test($(dom, '#fDate').value) && /^\d{2}:\d{2}$/.test($(dom, '#fTime').value),
+      $(dom, '#fDate').value + ' ' + $(dom, '#fTime').value);
+    check('AT-23.2 they are not hidden away', $(dom, '#whenRow').hidden === false);
 
     await addReading(dom, 128, 82, 64, 'first note');
     const stamped = logRows(dom)[0].querySelector('.date').textContent;
@@ -944,8 +944,8 @@ async function readBlob(blob) {
     const id0 = logRows(dom)[0].querySelector('[data-edit]').getAttribute('data-edit');
     logRows(dom)[0].querySelector('[data-edit]').click();
     await sleep(60);
-    check('AT-23.5 editing swaps the clock for date and time fields',
-      $(dom, '#clockRow').hidden === true && $(dom, '#whenRow').hidden === false);
+    check('AT-23.5 editing locks the measured values',
+      $(dom, '#fSys').readOnly === true && $(dom, '#whenRow').hidden === false);
     check('AT-23.6 they are prefilled from the record',
       $(dom, '#fDate').value === stamped.slice(0, 10) && $(dom, '#fTime').value === stamped.slice(11, 16),
       $(dom, '#fDate').value + ' ' + $(dom, '#fTime').value);
@@ -978,10 +978,27 @@ async function readBlob(blob) {
       !row.textContent.includes('199'), row.textContent.replace(/\s+/g, ' ').trim());
     check('AT-23.17 the id is preserved', row.querySelector('[data-edit]').getAttribute('data-edit') === id0);
     check('AT-23.18 the card returns to add mode',
-      $(dom, '#addBtn').textContent === '+ Add Reading' && $(dom, '#cancelBtn').hidden === true &&
-      $(dom, '#clockRow').hidden === false);
+      $(dom, '#addBtn').textContent === '+ Add Reading' && $(dom, '#cancelBtn').hidden === true);
     check('AT-23.19 and the value fields are typeable again',
       ['fSys', 'fDia', 'fPulse'].every(f => $(dom, '#' + f).readOnly === false));
+
+    // Back-dating on the way in, which is what the fields are for. Reported as
+    // a bug when the add form had no date: a time typed in was ignored and the
+    // clock used instead.
+    set(dom, 'fDate', '2026-07-04');
+    set(dom, 'fTime', '06:20');
+    await addReading(dom, 132, 88, 71, 'entered late');
+    const back = logRows(dom).find(r => r.textContent.includes('entered late'));
+    check('AT-23.19b a new reading keeps the date and time given',
+      back && back.querySelector('.date').textContent === '2026-07-04 06:20',
+      back ? back.querySelector('.date').textContent : 'row missing');
+    check('AT-23.19c the fields return to now afterwards',
+      $(dom, '#fDate').value !== '2026-07-04', $(dom, '#fDate').value);
+
+    // Both halves are required on the way in too.
+    $(dom, '#fTime').value = '';
+    await addReading(dom, 118, 76);
+    check('AT-23.19d adding without a time is refused', /required/.test(msgText(dom)), msgText(dom));
     dom.window.close();
 
     const dom2 = await boot({ keepFactory: factory });
@@ -1015,13 +1032,17 @@ async function readBlob(blob) {
     set(dom2, 'fNote', '');
     $(dom2, '#addBtn').click();
     await sleep(90);
+    // Scoped to the row that was cleared: other rows in this database legitimately
+    // still carry comments, so "no note anywhere" would fail for the wrong reason.
+    const cleared = () => logRows(dom2).find(r => r.textContent.includes('128/82'));
     check('AT-23.24 clearing the comment removes the note',
-      !logRows(dom2).some(r => r.querySelector('.note')), 'a note survived');
+      cleared() && !cleared().querySelector('.note'), 'a note survived');
     dom2.window.close();
 
     const dom3 = await boot({ keepFactory: factory });
+    const cleared3 = logRows(dom3).find(r => r.textContent.includes('128/82'));
     check('AT-23.25 the cleared note stayed cleared after restart',
-      !logRows(dom3).some(r => r.querySelector('.note')));
+      cleared3 && !cleared3.querySelector('.note'));
 
     // Neither half of the timestamp may be left blank.
     logRows(dom3)[0].querySelector('[data-edit]').click();

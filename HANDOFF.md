@@ -6,8 +6,8 @@ Blood pressure tracking PWA. Local-first, offline-capable, no backend.
 - **Live:** https://finsen98614-afk.github.io/bp-log/
 - **Owner:** Finsen (GitHub `finsen98614-afk`, email `finsen98614@gmail.com`)
 - **Device:** Redmi 14 Pro, Android, Chrome. Installed as a PWA from the app drawer.
-- **Current version:** service worker cache `bp-log-v24`
-- **Tests:** 254 checks (245 app + 9 service worker) — `npm install && npm test`
+- **Current version:** service worker cache `bp-log-v25`
+- **Tests:** 258 checks (249 app + 9 service worker) — `npm install && npm test`
 
 ---
 
@@ -223,7 +223,7 @@ panel and the printed footnote say so instead.
 
 | Feature | Notes |
 |---|---|
-| Add reading | Always stamped with the clock; the card shows a live "Logging at" label rather than a field, because adding is the one-tap path. Back-dating is done by adding then editing. Optional comment. Enter key submits. Guarded against double-tap. |
+| Add reading | Date and time are fields that default to the clock and keep following it until touched, so logging a reading now is still one tap while one taken earlier can be entered as such. They return to now after each save. Both halves are required and a timestamp more than a day ahead is refused. Optional comment. Enter key submits. Guarded against double-tap. |
 | Edit | Pencil on each row loads it into the same card, which switches to "Save changes" with a Cancel beside it; the row being edited is outlined in `--accent`. **Only date, time and comment are editable.** The measured values are shown so you can tell which reading you have open, but they are `readonly`, and — more importantly — a save reads them back out of the stored record rather than out of the form, so tampering with the DOM changes nothing. A mistyped reading is corrected by deleting the row and entering it again. The id is kept, changing the date re-sorts the row, clearing the comment removes the note rather than storing an empty string, and a timestamp more than a day ahead is refused. Deleting the row under edit exits edit mode, so a later save cannot resurrect it. |
 | Delete | Single delegated listener on `#log`, not one per row. Guarded by a native `confirm()` naming the reading and its timestamp. An inline Undo was built first and removed after device testing — it sat in the message line and was too easy to miss, and an undo nobody notices is not a safety net. Don't rebuild it; the interruption has to come before the write. |
 | Stats | Avg systolic, avg diastolic, latest. Non-finite values filtered out. |
