@@ -69,7 +69,7 @@
      3 + 1 below ~400px and strand Restore on its own line; a fixed grid can't.
      The label shrinks instead of the row breaking -- at 320px each cell is
      about 68px, which "Restore" clears at this size. */
-  .tools{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px;}
+  .tools{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:14px;}
   .ghost{background:none;border:1px solid var(--line);color:var(--muted);padding:9px 3px;font-size:10px;text-transform:uppercase;letter-spacing:.02em;}
   @media (min-width:400px){ .tools{gap:7px;} .ghost{padding:9px 6px;font-size:10.5px;letter-spacing:.05em;} }
   .ghost:active{border-color:var(--muted);color:var(--text);}
@@ -147,6 +147,14 @@
 
     /* Compact layout: a session per line, readings across. Wider cells and
        centred numbers so three or four sit side by side without crowding. */
+    /* Pin the two metadata columns. Left to itself the browser gave "21/05/2026"
+       more room than a whole reading, which is backwards -- the readings are
+       what the sheet is for. Everything left over is split by the reading
+       columns, however many there are. */
+    #printArea table.rd.compact th:first-child,
+    #printArea table.rd.compact td:first-child{width:21mm;}
+    #printArea table.rd.compact th:nth-child(2),
+    #printArea table.rd.compact td:nth-child(2){width:13mm;}
     #printArea table.rd.compact td{padding:4px 5px;font-size:10pt;}
     #printArea table.rd.compact td.rd2{text-align:center;font-variant-numeric:tabular-nums;white-space:nowrap;}
     #printArea table.rd.compact td.day{white-space:nowrap;font-weight:700;}
@@ -207,7 +215,6 @@
   <div class="tools">
     <button class="ghost" id="csvBtn">CSV</button>
     <button class="ghost" id="backupBtn">Backup</button>
-    <button class="ghost" id="printBtn">Print</button>
     <button class="ghost" id="restoreBtn">Restore</button>
     <input type="file" id="restoreFile" accept="application/json,.json">
   </div>
@@ -247,6 +254,7 @@
       </div>
       <p class="hint">Leave the dates blank for everything. The summary and averages
         cover only what is printed, so a narrowed range narrows those too.</p>
+      <button class="send" id="printBtn" style="margin-top:4px;">Print</button>
     </div>
   </details>
 

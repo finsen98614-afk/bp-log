@@ -443,7 +443,12 @@ async function readBlob(blob) {
     const dom = await boot();
     check('AT-12.1 Email button gone', dom.window.document.getElementById('shareBtn') === null);
     check('AT-12.2 reminder banner gone', dom.window.document.getElementById('reminder') === null);
-    check('AT-12.3 four tool buttons (CSV, Backup, Print, Restore)', dom.window.document.querySelectorAll('.tools .ghost').length === 4);
+    // Print moved into the Print options panel, alongside the layout and date
+    // range that govern it; three buttons are left on the tools row.
+    check('AT-12.3 three tool buttons (CSV, Backup, Restore)',
+      dom.window.document.querySelectorAll('.tools .ghost').length === 3);
+    check('AT-12.8 Print sits with its own options',
+      $(dom, '#printBox #printBtn') !== null && $(dom, '.tools #printBtn') === null);
     check('AT-12.7 settings block present but collapsed', $(dom, '#settingsBox') !== null && !$(dom, '#settingsBox').open);
     const src = HTML;
     check('AT-12.4 no orphaned shareBackup code', !/shareBackup/.test(src));
