@@ -992,13 +992,44 @@ async function readBlob(blob) {
     check('AT-23.19b a new reading keeps the date and time given',
       back && back.querySelector('.date').textContent === '2026-07-04 06:20',
       back ? back.querySelector('.date').textContent : 'row missing');
-    check('AT-23.19c the fields return to now afterwards',
+    // Sticky, so a run of readings from one sitting only needs the time set
+    // once. The old behaviour snapped back to now after every save.
+    check('AT-23.19c the timestamp stays put after saving',
+      $(dom, '#fDate').value === '2026-07-04' && $(dom, '#fTime').value === '06:20',
+      $(dom, '#fDate').value + ' ' + $(dom, '#fTime').value);
+    await addReading(dom, 129, 84, 70, 'same sitting');
+    const second = logRows(dom).find(r => r.textContent.includes('same sitting'));
+    check('AT-23.19d a second reading reuses it without retyping',
+      second && second.querySelector('.date').textContent === '2026-07-04 06:20',
+      second ? second.querySelector('.date').textContent : 'row missing');
+
+    // Leaving an edit must not carry that row's date into the next new reading.
+    second.querySelector('[data-edit]').click();
+    await sleep(60);
+    $(dom, '#cancelBtn').click();
+    await sleep(60);
+    check('AT-23.19e cancelling an edit puts the clock back',
       $(dom, '#fDate').value !== '2026-07-04', $(dom, '#fDate').value);
 
-    // Both halves are required on the way in too.
-    $(dom, '#fTime').value = '';
+    // Both halves are required, and the time must be 24-hour.
+    set(dom, 'fTime', '');
     await addReading(dom, 118, 76);
-    check('AT-23.19d adding without a time is refused', /required/.test(msgText(dom)), msgText(dom));
+    check('AT-23.19f adding without a time is refused', /required/.test(msgText(dom)), msgText(dom));
+    set(dom, 'fTime', '25:00');
+    await addReading(dom, 118, 76);
+    check('AT-23.19g an impossible hour is refused', /24-hour/.test(msgText(dom)), msgText(dom));
+    set(dom, 'fTime', '12:75');
+    await addReading(dom, 118, 76);
+    check('AT-23.19h an impossible minute is refused', /24-hour/.test(msgText(dom)), msgText(dom));
+
+    // The colon is inserted while typing, so four digits is enough.
+    const tEl = $(dom, '#fTime');
+    tEl.value = '2315';
+    tEl.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    check('AT-23.19i typing four digits produces HH:MM', tEl.value === '23:15', tEl.value);
+    tEl.value = '7';
+    tEl.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    check('AT-23.19j a partial entry is left alone', tEl.value === '7', tEl.value);
     dom.window.close();
 
     const dom2 = await boot({ keepFactory: factory });

@@ -192,7 +192,7 @@
   <div class="card" id="card">
     <div class="row2" id="whenRow">
       <div><label for="fDate">Date</label><input type="date" id="fDate"></div>
-      <div><label for="fTime">Time</label><input type="time" id="fTime"></div>
+      <div><label for="fTime">Time (24h)</label><input type="text" id="fTime" inputmode="numeric" maxlength="5" placeholder="HH:MM" autocomplete="off"></div>
     </div>
     <div class="row3">
       <div><label for="fSys">Systolic</label><input type="number" inputmode="numeric" id="fSys" placeholder="120"></div>
@@ -282,7 +282,6 @@
   const PAGE=50;             // rows rendered before the "show all" control appears
   let showAll=false;
   let editingId=null;        // id of the reading the card is currently editing, or null
-  let whenPinned=false;      // true once the user sets a time themselves; stops the clock overwriting it
 
   // Monotonic millisecond timestamp. Multiplying a ms epoch by a stride would
   // exceed Number.MAX_SAFE_INTEGER and silently lose precision, so instead we
@@ -317,6 +316,18 @@
   // and putting them through Date() would drag a timezone into it.
   const splitWhen=s=>{const p=String(s).split(' ');return {date:p[0]||'',time:(p[1]||'').slice(0,5)};};
   const joinWhen=(d,t)=>String(d)+' '+String(t).slice(0,5);
+  const TIME_RE=/^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+
+  // <input type="time"> renders in the browser's locale -- on a zh-TW or en-US
+  // device that is "下午 05:30", not 17:30 -- and the element's lang attribute
+  // does not override it (checked in Chrome). The stored value, the log, the
+  // CSV and both printed layouts are all 24-hour, so the field is a plain text
+  // box that shows exactly what will be saved. The colon is inserted as you
+  // type, so it is still four keystrokes on a numeric keypad.
+  function formatTimeInput(el){
+    const digits=el.value.replace(/\D/g,'').slice(0,4);
+    el.value = digits.length>2 ? digits.slice(0,2)+':'+digits.slice(2) : digits;
+  }
   function setMsg(t,c){const e=document.getElementById('msg');e.textContent=t||'';e.className='msg '+(c||'');}
 
   // Home-BP thresholds differ by region, so the bands are data, not code.
@@ -557,15 +568,23 @@
   // message line, so a caller can say what just happened.
   const MEASURED=['fSys','fDia','fPulse'];
 
+  // Leaving edit mode clears the timestamp so it refills with the clock: the
+  // card is holding some old row's date, and carrying that into the next new
+  // reading would be a trap. A plain add keeps whatever is in the fields, so a
+  // run of readings from one sitting only needs the time set once.
   function resetForm(){
+    const wasEditing=editingId!==null;
     editingId=null;
-    whenPinned=false;
     ['fSys','fDia','fPulse','fNote'].forEach(id=>{document.getElementById(id).value='';});
     MEASURED.forEach(id=>{document.getElementById(id).readOnly=false;});
     document.getElementById('addBtn').textContent='+ Add Reading';
     document.getElementById('cancelBtn').hidden=true;
     document.getElementById('card').classList.remove('editing');
-    tickClock();
+    if(wasEditing){
+      document.getElementById('fDate').value='';
+      document.getElementById('fTime').value='';
+    }
+    fillWhenBlank();
   }
 
   // Editing covers when the reading was taken and what was noted about it --
@@ -575,7 +594,6 @@
     const rec=entries.find(x=>x.id===id);
     if(!rec) return;
     editingId=id;
-    whenPinned=true;                 // show the reading's own time, not the clock
     const w=splitWhen(rec.date);
     document.getElementById('fDate').value=w.date;
     document.getElementById('fTime').value=w.time;
@@ -614,6 +632,7 @@
     const rawDate=document.getElementById('fDate').value.trim();
     const rawTime=document.getElementById('fTime').value.trim();
     if(!rawDate||!rawTime){ setMsg('A date and a time are both required.','err'); return; }
+    if(!TIME_RE.test(rawTime)){ setMsg('Time must be 24-hour HH:MM, between 00:00 and 23:59.','err'); return; }
     date=joinWhen(rawDate,rawTime);
 
     if(editing){
@@ -998,23 +1017,26 @@
   }
 
   // ---------- init ----------
-  // Keeps the date and time on "now" so adding stays one tap, and stops the
-  // moment the user sets either themselves or opens an edit -- otherwise the
-  // clock would type over what they just chose.
-  function tickClock(){
-    if(whenPinned||editingId!==null) return;
+  // Fills a blank date or time with the clock and never touches a filled one.
+  // That makes the value sticky: entering several readings from one sitting
+  // keeps the timestamp you set instead of snapping back to now after each
+  // save. The cost is that a field left alone for hours goes stale -- it is on
+  // screen and correctable, which a hidden auto-stamp was not.
+  function fillWhenBlank(){
+    if(editingId!==null) return;
     const w=splitWhen(nowStr());
     const dEl=document.getElementById('fDate'), tEl=document.getElementById('fTime');
-    if(dEl) dEl.value=w.date;
-    if(tEl) tEl.value=w.time;
+    if(dEl&&!dEl.value) dEl.value=w.date;
+    if(tEl&&!tEl.value) tEl.value=w.time;
   }
 
   // Re-sync when the app returns to the foreground: a backgrounded PWA has its
   // timers throttled, so the label would otherwise be stale on resume.
   function watchClock(){
-    tickClock();
-    setInterval(tickClock,1000);
-    document.addEventListener('visibilitychange',()=>{ if(!document.hidden) tickClock(); });
+    fillWhenBlank();
+    // No interval: a filled field is never overwritten, so there is nothing to
+    // tick. Refill on resume only in case the fields are still blank.
+    document.addEventListener('visibilitychange',()=>{ if(!document.hidden) fillWhenBlank(); });
   }
 
   async function init(){
@@ -1030,10 +1052,7 @@
     });
     document.getElementById('addBtn').addEventListener('click',onSubmit);
     document.getElementById('cancelBtn').addEventListener('click',cancelEdit);
-    ['fDate','fTime'].forEach(id=>{
-      document.getElementById(id).addEventListener('input',()=>{ whenPinned=true; });
-      document.getElementById(id).addEventListener('change',()=>{ whenPinned=true; });
-    });
+    document.getElementById('fTime').addEventListener('input',ev=>formatTimeInput(ev.target));
     document.getElementById('csvBtn').addEventListener('click',exportCsv);
     document.getElementById('backupBtn').addEventListener('click',backup);
     document.getElementById('printBtn').addEventListener('click',printReport);

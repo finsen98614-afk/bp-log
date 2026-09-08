@@ -6,8 +6,8 @@ Blood pressure tracking PWA. Local-first, offline-capable, no backend.
 - **Live:** https://finsen98614-afk.github.io/bp-log/
 - **Owner:** Finsen (GitHub `finsen98614-afk`, email `finsen98614@gmail.com`)
 - **Device:** Redmi 14 Pro, Android, Chrome. Installed as a PWA from the app drawer.
-- **Current version:** service worker cache `bp-log-v25`
-- **Tests:** 258 checks (249 app + 9 service worker) — `npm install && npm test`
+- **Current version:** service worker cache `bp-log-v26`
+- **Tests:** 264 checks (255 app + 9 service worker) — `npm install && npm test`
 
 ---
 
@@ -223,7 +223,8 @@ panel and the printed footnote say so instead.
 
 | Feature | Notes |
 |---|---|
-| Add reading | Date and time are fields that default to the clock and keep following it until touched, so logging a reading now is still one tap while one taken earlier can be entered as such. They return to now after each save. Both halves are required and a timestamp more than a day ahead is refused. Optional comment. Enter key submits. Guarded against double-tap. |
+| Add reading | Date and time are fields. A blank one is filled with the clock; a filled one is never overwritten, so a timestamp survives saving and a run of readings from one sitting only needs it set once. Leaving an edit clears them, or that row's date would be carried into the next new reading. Both halves are required, the time must be 24-hour `HH:MM`, and a timestamp more than a day ahead is refused. Optional comment. Enter key submits. Guarded against double-tap. |
+| Time field | A text box, not `<input type="time">`. That control renders in the browser's locale — "下午 05:30" on this device — and the element's `lang` attribute does not override it; checked in Chrome, `lang="en-GB"` changed nothing. Everything else in the app is 24-hour, so the field shows exactly what will be stored. The colon is inserted while typing, so it stays four keystrokes on a numeric keypad. The date keeps its native picker: nobody complained about it and the calendar is worth having. |
 | Edit | Pencil on each row loads it into the same card, which switches to "Save changes" with a Cancel beside it; the row being edited is outlined in `--accent`. **Only date, time and comment are editable.** The measured values are shown so you can tell which reading you have open, but they are `readonly`, and — more importantly — a save reads them back out of the stored record rather than out of the form, so tampering with the DOM changes nothing. A mistyped reading is corrected by deleting the row and entering it again. The id is kept, changing the date re-sorts the row, clearing the comment removes the note rather than storing an empty string, and a timestamp more than a day ahead is refused. Deleting the row under edit exits edit mode, so a later save cannot resurrect it. |
 | Delete | Single delegated listener on `#log`, not one per row. Guarded by a native `confirm()` naming the reading and its timestamp. An inline Undo was built first and removed after device testing — it sat in the message line and was too easy to miss, and an undo nobody notices is not a safety net. Don't rebuild it; the interruption has to come before the write. |
 | Stats | Avg systolic, avg diastolic, latest. Non-finite values filtered out. |
