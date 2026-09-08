@@ -145,6 +145,13 @@
     #printArea table.rd tr{page-break-inside:avoid;}
     #printArea thead{display:table-header-group;}
 
+    /* Compact layout: a session per line, readings across. Wider cells and
+       centred numbers so three or four sit side by side without crowding. */
+    #printArea table.rd.compact td{padding:4px 5px;font-size:10pt;}
+    #printArea table.rd.compact td.rd2{text-align:center;font-variant-numeric:tabular-nums;white-space:nowrap;}
+    #printArea table.rd.compact td.day{white-space:nowrap;font-weight:700;}
+    #printArea table.rd.compact .pl{color:#555;font-size:8.5pt;margin-left:3px;}
+
     #printArea .fn{margin-top:16px;font-size:8.5pt;line-height:1.55;color:#222;border-top:1px solid #999;padding-top:8px;}
   }
   .setrow{margin-top:10px;}
@@ -223,6 +230,23 @@
         <option value="intl">ESH 2023 / NICE — Hong Kong, Europe, UK</option>
       </select>
       <p class="hint">Categories are calculated when displayed, so switching re-labels every reading, past and future. Your recorded numbers never change.</p>
+    </div>
+  </details>
+
+  <details class="ref" id="printBox">
+    <summary>Print options</summary>
+    <div class="setrow">
+      <label for="fmtSelect">Layout</label>
+      <select id="fmtSelect">
+        <option value="1">Detailed — one row per reading, with comments</option>
+        <option value="2">Compact — one row per session, three readings across</option>
+      </select>
+      <div class="row2" style="margin-top:10px;">
+        <div><label for="fromDate">From</label><input type="date" id="fromDate"></div>
+        <div><label for="toDate">To</label><input type="date" id="toDate"></div>
+      </div>
+      <p class="hint">Leave the dates blank for everything. The summary and averages
+        cover only what is printed, so a narrowed range narrows those too.</p>
     </div>
   </details>
 
@@ -698,14 +722,33 @@
   // Home-BP guidelines assess a SERIES average rather than single readings, so
   // the report leads with averages over clinically useful windows and shows the
   // full log underneath as supporting detail.
-  function windowAvg(days){
-    let pool=entries;
-    if(days){
-      const cut=Date.now()-days*86400000;
-      pool=entries.filter(e=>{
-        const t=Date.parse(String(e.date).replace(' ','T'));
-        return Number.isFinite(t)&&t>=cut;
-      });
+  // The set the sheet is about: everything, or the chosen From/To range.
+  // Both bounds are inclusive whole days.
+  function printedRows(){
+    const from=document.getElementById('fromDate').value.trim();
+    const to=document.getElementById('toDate').value.trim();
+    return entries.filter(e=>{
+      const day=String(e.date).slice(0,10);
+      if(from && day<from) return false;
+      if(to && day>to) return false;
+      return true;
+    });
+  }
+
+  // Windows are measured back from the newest reading on the sheet, not from
+  // today. Printing April in June would otherwise report "no readings" for
+  // every window, which says nothing about the period the doctor is holding.
+  function windowAvg(days,rows){
+    let pool=rows;
+    if(days&&pool.length){
+      const times=pool.map(e=>Date.parse(String(e.date).replace(' ','T'))).filter(Number.isFinite);
+      if(times.length){
+        const cut=Math.max.apply(null,times)-days*86400000;
+        pool=pool.filter(e=>{
+          const t=Date.parse(String(e.date).replace(' ','T'));
+          return Number.isFinite(t)&&t>=cut;
+        });
+      }
     }
     if(!pool.length) return null;
     const m=k=>Math.round(pool.reduce((a,b)=>a+b[k],0)/pool.length);
@@ -726,10 +769,42 @@
            ' &nbsp;&mdash;&nbsp; '+c.l+' &nbsp;('+a.n+(a.n===1?' reading':' readings')+')</td></tr>';
   }
 
+  // A session is one sitting at the machine. Hypertension Canada asks for
+  // duplicate measures morning and evening, so the sheet reads best with a
+  // sitting per line rather than a reading per line.
+  //
+  // Morning is 05:00 to 13:59; everything else -- afternoon, evening, and the
+  // small hours -- is the second session of the same calendar day. That is why
+  // a 00:27 reading sorts below a 10:38 one instead of above it.
+  function sessionOf(dateStr){
+    const hh=parseInt(String(dateStr).slice(11,13),10);
+    return (hh>=5&&hh<14)?1:2;
+  }
+
+  function groupSessions(asc){
+    const map=new Map();
+    asc.forEach(e=>{
+      const key=String(e.date).slice(0,10)+'#'+sessionOf(e.date);
+      if(!map.has(key)) map.set(key,[]);
+      map.get(key).push(e);
+    });
+    // asc is oldest-first, so each bucket is too; the sheet lists newest first.
+    return [...map.entries()].map(([key,rows])=>({
+      day:key.slice(0,10),
+      session:Number(key.slice(11)),
+      time:String(rows[0].date).slice(11,16),
+      rows:rows
+    })).sort((a,b)=> b.day.localeCompare(a.day) || a.session-b.session);
+  }
+
+  const ddmmyyyy=d=>{const p=String(d).split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:String(d);};
+
   function buildReport(){
-    const asc=entries.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.id-b.id);
+    const scoped=printedRows();
+    const asc=scoped.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.id-b.id);
     const first=asc.length?asc[0].date:'—';
     const last=asc.length?asc[asc.length-1].date:'—';
+    const compact=document.getElementById('fmtSelect').value==='2';
 
     // Order comes from the active guideline, lowest band first. A hard-coded list
     // would silently drop every label belonging to the other guideline.
@@ -747,18 +822,41 @@
         ' an early-warning zone below the diagnostic threshold, added by this log. '
       : '';
 
-    const rows=asc.map(e=>{
-      const sp=String(e.date).split(' ');
-      return '<tr>'+
-        '<td>'+esc(sp[0]||'')+'</td>'+
-        '<td>'+esc(sp[1]||'')+'</td>'+
-        '<td class="n">'+e.sys+'</td>'+
-        '<td class="n">'+e.dia+'</td>'+
-        '<td class="n">'+(e.pulse!=null?e.pulse:'')+'</td>'+
-        '<td>'+classify(e.sys,e.dia).l+'</td>'+
-        '<td>'+(e.note?esc(e.note):'')+'</td>'+
-      '</tr>';
-    }).join('');
+    let head, rows, span;
+    if(compact){
+      const sessions=groupSessions(asc);
+      // As many reading columns as the busiest session needs. Fixing it at
+      // three would silently drop a fourth measurement.
+      const wide=sessions.reduce((m,s)=>Math.max(m,s.rows.length),0)||1;
+      span=2+wide;
+      head='<tr><th>Date</th><th>Time</th>'+
+        Array.from({length:wide},(_,i)=>'<th>Reading '+(i+1)+'</th>').join('')+'</tr>';
+      let lastDay=null;
+      rows=sessions.map(s=>{
+        const showDay=s.day!==lastDay; lastDay=s.day;
+        const cells=Array.from({length:wide},(_,i)=>{
+          const e=s.rows[i];
+          return '<td class="rd2">'+(e?e.sys+'/'+e.dia+(e.pulse!=null?' <span class="pl">'+e.pulse+'</span>':''):'')+'</td>';
+        }).join('');
+        return '<tr><td class="day">'+(showDay?esc(ddmmyyyy(s.day)):'')+'</td>'+
+               '<td>'+esc(s.time)+'</td>'+cells+'</tr>';
+      }).join('');
+    }else{
+      span=7;
+      head='<tr><th>Date</th><th>Time</th><th>Sys</th><th>Dia</th><th>Pulse</th><th>Category</th><th>Comment</th></tr>';
+      rows=asc.map(e=>{
+        const sp=String(e.date).split(' ');
+        return '<tr>'+
+          '<td>'+esc(sp[0]||'')+'</td>'+
+          '<td>'+esc(sp[1]||'')+'</td>'+
+          '<td class="n">'+e.sys+'</td>'+
+          '<td class="n">'+e.dia+'</td>'+
+          '<td class="n">'+(e.pulse!=null?e.pulse:'')+'</td>'+
+          '<td>'+classify(e.sys,e.dia).l+'</td>'+
+          '<td>'+(e.note?esc(e.note):'')+'</td>'+
+        '</tr>';
+      }).join('');
+    }
 
     document.getElementById('printArea').innerHTML=
       '<div class="ph">'+
@@ -771,21 +869,23 @@
       '<table class="sum">'+
         '<tr><td class="k">Period covered</td><td>'+esc(first)+' to '+esc(last)+'</td></tr>'+
         '<tr><td class="k">Total readings</td><td>'+asc.length+'</td></tr>'+
-        avgRow('Average, last 7 days',windowAvg(7))+
-        avgRow('Average, last 30 days',windowAvg(30))+
-        avgRow('Average, all readings',windowAvg(null))+
+        avgRow('Average, last 7 days',windowAvg(7,asc))+
+        avgRow('Average, last 30 days',windowAvg(30,asc))+
+        avgRow('Average, whole period',windowAvg(null,asc))+
         '<tr><td class="k">Category breakdown</td><td>'+breakdown+'</td></tr>'+
       '</table>'+
 
-      '<h2>All readings</h2>'+
-      '<table class="rd">'+
-        '<thead><tr><th>Date</th><th>Time</th><th>Sys</th><th>Dia</th><th>Pulse</th><th>Category</th><th>Comment</th></tr></thead>'+
-        '<tbody>'+(rows||'<tr><td colspan="7">No readings recorded.</td></tr>')+'</tbody>'+
+      '<h2>'+(compact?'Readings by session':'All readings')+'</h2>'+
+      '<table class="rd'+(compact?' compact':'')+'">'+
+        '<thead>'+head+'</thead>'+
+        '<tbody>'+(rows||'<tr><td colspan="'+span+'">No readings in this period.</td></tr>')+'</tbody>'+
       '</table>'+
 
       '<div class="fn">'+
         '<b>Categories</b> follow '+esc(gl().name)+', using '+esc(gl().basis)+' thresholds. '+esc(gl().note)+' '+
         ownBands+
+        'Averages cover only the period on this sheet, measured back from its most recent reading. '+
+        (compact?'Each line is one session at the machine: morning is 05:00–13:59, and any other time counts as that day’s second session. Comments are not shown in this layout. ':'')+
         'Readings were taken by the patient at home on a personal device; the device model and measurement conditions are not recorded by this log. '+
         'Whether treatment is indicated depends on overall cardiovascular risk as well as blood pressure, and this log holds no risk information. '+
         'Self-measured readings are not a diagnosis and are intended to support, not replace, clinical assessment.'+
@@ -794,6 +894,9 @@
 
   function printReport(){
     if(!entries.length){ setMsg('Nothing to print yet.','warn'); return; }
+    // A range that matches nothing would print a sheet with a header and an
+    // empty table. Say so instead of handing the user blank paper.
+    if(!printedRows().length){ setMsg('No readings fall in that date range — nothing to print.','warn'); return; }
     buildReport();
     setMsg('Opening print dialog\u2026','');
     // Let the browser lay out the freshly injected report before printing.

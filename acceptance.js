@@ -614,7 +614,9 @@ async function readBlob(blob) {
     check('AT-18.6 name and DOB fields for the clinic', /Name:/.test(html) && /Date of birth:/.test(html));
     check('AT-18.7 7-day average present', /Average, last 7 days/.test(html));
     check('AT-18.8 30-day average present', /Average, last 30 days/.test(html));
-    check('AT-18.9 all-readings average present', /Average, all readings/.test(html));
+    // Renamed from "all readings": the sheet can now cover a chosen range, so
+    // the figure is the average of the period printed, not of the whole log.
+    check('AT-18.9 whole-period average present', /Average, whole period/.test(html));
     check('AT-18.10 7-day window excludes the 60-day-old reading', !/7 days<\/td><td><b>1[35]/.test(html));
     check('AT-18.11 all four readings tabulated', (html.match(/<tr>/g) || []).length >= 4);
     check('AT-18.12 comment carried into report', /after coffee/.test(html));
@@ -1046,6 +1048,106 @@ async function readBlob(blob) {
       $(dom4, '#addBtn').textContent === '+ Add Reading' && $(dom4, '#cancelBtn').hidden === true);
     check('AT-23.29 and saving afterwards cannot resurrect it', logRows(dom4).length === 0);
     dom4.window.close();
+  }
+
+  console.log('\n=== AT-24  Compact print layout and date range ===');
+  {
+    const setF = (dom, id, v) => {
+      const el = $(dom, '#' + id);
+      el.value = v;
+      el.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    };
+    // Two sessions on 12/05 (10:38 morning, 00:27 counts as that day's second
+    // session), one on 13/05, plus a reading well outside any range we print.
+    const seed = [
+      { id: 1, date: '2026-05-12 10:38', sys: 120, dia: 87, pulse: 78 },
+      { id: 2, date: '2026-05-12 10:40', sys: 121, dia: 84, pulse: 76 },
+      { id: 3, date: '2026-05-12 10:42', sys: 118, dia: 82, pulse: 75 },
+      { id: 4, date: '2026-05-12 00:27', sys: 112, dia: 78, pulse: 96 },
+      { id: 5, date: '2026-05-12 00:29', sys: 116, dia: 79, pulse: 95 },
+      { id: 6, date: '2026-05-13 09:30', sys: 124, dia: 89, pulse: 79 },
+      { id: 7, date: '2026-01-04 08:00', sys: 150, dia: 95, pulse: 70 },
+    ];
+    const dom = await boot({ seed });
+    let printCalled = 0;
+    dom.window.print = () => { printCalled++; };
+
+    check('AT-24.1 the detailed layout is the default', $(dom, '#fmtSelect').value === '1');
+
+    setF(dom, 'fmtSelect', '2');
+    $(dom, '#printBtn').click();
+    await sleep(140);
+    check('AT-24.2 printing still happens', printCalled === 1);
+    const html = $(dom, '#printArea').innerHTML;
+
+    check('AT-24.3 the table is marked compact', /table class="rd compact"/.test(html));
+    check('AT-24.4 dates are shown day-first', /12\/05\/2026/.test(html), 'no dd/mm/yyyy date');
+    check('AT-24.5 a session of three gets three reading columns',
+      /Reading 3/.test(html) && !/Reading 4/.test(html), 'column count wrong');
+    check('AT-24.6 the three morning readings share one row',
+      /120\/87[\s\S]{0,80}121\/84[\s\S]{0,80}118\/82/.test(html), 'morning session not on one line');
+    check('AT-24.7 the after-midnight reading is that day\'s second session, not the first',
+      html.indexOf('120/87') < html.indexOf('112/78'), 'ordering wrong');
+    check('AT-24.8 a session shows its earliest time', /10:38/.test(html) && /00:27/.test(html));
+    check('AT-24.9 the day is printed once per day, not once per session',
+      (html.match(/12\/05\/2026/g) || []).length === 1,
+      'repeats: ' + (html.match(/12\/05\/2026/g) || []).length);
+    check('AT-24.10 comments are not in this layout', !/Comment<\/th>/.test(html));
+    check('AT-24.11 the header block is kept', /Home Blood Pressure Record/.test(html) && /Name:/.test(html));
+    check('AT-24.12 so are the averages', /Average, whole period/.test(html));
+    check('AT-24.13 the footnote explains the session rule', /05:00/.test(html));
+
+    // Range: print only 12/05 to 13/05, leaving the January reading out.
+    setF(dom, 'fromDate', '2026-05-12');
+    setF(dom, 'toDate', '2026-05-13');
+    $(dom, '#printBtn').click();
+    await sleep(140);
+    const ranged = $(dom, '#printArea').innerHTML;
+    check('AT-24.14 a reading outside the range is dropped', !/150\/95/.test(ranged));
+    check('AT-24.15 the range narrows the total', /Total readings<\/td><td>6</.test(ranged),
+      (ranged.match(/Total readings<\/td><td>\d+/) || ['?'])[0]);
+    check('AT-24.16 period covered reflects the range',
+      /2026-05-12 00:27 to 2026-05-13 09:30/.test(ranged),
+      (ranged.match(/Period covered<\/td><td>[^<]*/) || ['?'])[0]);
+
+    // Bounds are inclusive whole days at both ends.
+    setF(dom, 'fromDate', '2026-05-13');
+    setF(dom, 'toDate', '2026-05-13');
+    $(dom, '#printBtn').click();
+    await sleep(140);
+    const oneDay = $(dom, '#printArea').innerHTML;
+    check('AT-24.17 a single-day range keeps that whole day',
+      /Total readings<\/td><td>1</.test(oneDay) && /124\/89/.test(oneDay));
+
+    // Averages must follow the sheet, not the calendar. These readings are
+    // months old, so a window measured from today would find nothing.
+    check('AT-24.18 windows are measured from the newest printed reading',
+      !/last 7 days<\/td><td>No readings/.test(oneDay), 'window fell back to today');
+
+    // A range that matches nothing prints nothing.
+    setF(dom, 'fromDate', '2030-01-01');
+    setF(dom, 'toDate', '2030-12-31');
+    const before = printCalled;
+    $(dom, '#printBtn').click();
+    await sleep(140);
+    check('AT-24.19 an empty range does not print', printCalled === before);
+    check('AT-24.20 and says why', /No readings fall in that date range/.test(msgText(dom)), msgText(dom));
+
+    // The detailed layout still works with a range.
+    setF(dom, 'fromDate', '');
+    setF(dom, 'toDate', '');
+    setF(dom, 'fmtSelect', '1');
+    $(dom, '#printBtn').click();
+    await sleep(140);
+    const detailed = $(dom, '#printArea').innerHTML;
+    check('AT-24.21 the detailed layout is one row per reading',
+      /Comment<\/th>/.test(detailed) && !/table class="rd compact"/.test(detailed));
+    // Format 1 puts sys and dia in separate cells, so "150/95" never appears
+    // as a string there; the count is the honest check that nothing is filtered.
+    check('AT-24.22 and covers every reading again',
+      /Total readings<\/td><td>7</.test(detailed),
+      (detailed.match(/Total readings<\/td><td>\d+/) || ['?'])[0]);
+    dom.window.close();
   }
 
   console.log('\n' + '='.repeat(52));

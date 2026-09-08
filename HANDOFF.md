@@ -6,8 +6,8 @@ Blood pressure tracking PWA. Local-first, offline-capable, no backend.
 - **Live:** https://finsen98614-afk.github.io/bp-log/
 - **Owner:** Finsen (GitHub `finsen98614-afk`, email `finsen98614@gmail.com`)
 - **Device:** Redmi 14 Pro, Android, Chrome. Installed as a PWA from the app drawer.
-- **Current version:** service worker cache `bp-log-v23`
-- **Tests:** 232 checks (223 app + 9 service worker) — `npm install && npm test`
+- **Current version:** service worker cache `bp-log-v24`
+- **Tests:** 254 checks (245 app + 9 service worker) — `npm install && npm test`
 
 ---
 
@@ -231,7 +231,9 @@ panel and the printed footnote say so instead.
 | Row windowing | 50 rows rendered by default with a "Show all N" toggle. Rebuilding the log dominated render cost. |
 | CSV export | UTF-8 BOM for Excel, separate Date and Time columns, comments quoted. A comment opening with `= + - @` gets a leading apostrophe — spreadsheets evaluate those as formulas and quoting does not stop them. |
 | Backup / Restore | JSON. Restore merges by id, skips invalid records and reports how many. |
-| Print report | For the doctor. Leads with 7-day / 30-day / all-readings averages, since guidelines assess a series average rather than single readings. Includes name/DOB blanks, category breakdown, full table, and guideline attribution. A4, black on white. |
+| Print options | Collapsed panel above Categories: layout and an optional From/To range, both inclusive whole days. Blank dates mean everything. The range applies to whichever layout is chosen, and everything on the sheet — period, totals, averages, breakdown — describes only what was printed. An empty range refuses to print rather than producing a blank table. |
+| Print, compact (#2) | One row per **session** rather than per reading, with the day printed once and its readings laid across. A session is a sitting at the machine: 05:00–13:59 is the morning session, and anything else — afternoon, evening, or after midnight — is that calendar day's second session, which is why a 00:27 reading sits below a 10:38 one. The number of reading columns is the busiest session in range, so a fourth measurement is never dropped. Dates print day-first. No comments and no per-row category; the header, averages and footnote are the same as #1. |
+| Print report (#1) | For the doctor. Leads with 7-day / 30-day / all-readings averages, since guidelines assess a series average rather than single readings. Includes name/DOB blanks, category breakdown, full table, and guideline attribution. A4, black on white. |
 | Settings | Collapsed by default. Guideline selector only. |
 
 ---
